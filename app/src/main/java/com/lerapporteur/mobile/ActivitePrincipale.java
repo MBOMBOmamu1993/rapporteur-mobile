@@ -1,0 +1,236 @@
+package com.lerapporteur.mobile;
+
+/**
+ * Rapporteur pour Android — la coquille mobile.
+ *
+ * Comme l'application Windows, elle ne contient AUCUNE logique du service :
+ * elle charge lerapporteur.com comme le ferait un navigateur, en y ajoutant la
+ * seule chose qu'un navigateur de téléphone ne sait pas faire — continuer
+ * d'enregistrer ÉCRAN ÉTEINT, par un service de premier plan « microphone ».
+ *
+ * Conséquences voulues de cette architecture :
+ * - le design et les évolutions du site apparaissent ici sans mise à jour ;
+ * - les clés, les prompts et la rédaction restent sur le serveur : il n'y a
+ *   rien à voler dans cette application ;
+ * - la session est le cookie du site : la sécurité est celle des routes API.
+ *
+ * L'application s'installe et s'ouvre librement ; enregistrer demande d'être
+ * client — vérifié PAR LE SERVEUR à l'envoi, comme au navigateur.
+ */
+
+import android.Manifest;
+import android.app.Activity;
+import android.app.DownloadManager;
+import android.content.Intent;
+import android.content.pm.PackageManager;
+import android.net.Uri;
+import android.os.Build;
+import android.os.Bundle;
+import android.os.Environment;
+import android.view.WindowInsets;
+import android.webkit.CookieManager;
+import android.webkit.PermissionRequest;
+import android.webkit.WebChromeClient;
+import android.webkit.WebResourceError;
+import android.webkit.WebResourceRequest;
+import android.webkit.WebSettings;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
+import android.widget.FrameLayout;
+
+public class ActivitePrincipale extends Activity {
+
+    static final String SITE = "https://lerapporteur.com";
+    private static final int DEMANDE_MICRO = 1;
+
+    private WebView toile;
+    /* La demande de micro de la page, gardée le temps que l'utilisateur
+       réponde à la fenêtre de permission d'Android. */
+    private PermissionRequest demandeEnAttente;
+
+    @Override
+    protected void onCreate(Bundle etat) {
+        super.onCreate(etat);
+
+        toile = new WebView(this);
+        WebSettings reglages = toile.getSettings();
+        reglages.setJavaScriptEnabled(true);
+        reglages.setDomStorageEnabled(true);
+        /* Le klaxon de l'avertisseur de silence doit sonner sans clic. */
+        reglages.setMediaPlaybackRequiresUserGesture(false);
+        /* Rien du disque : la page n'a pas à lire de fichiers locaux. Les
+           écrans embarqués (hors-ligne) vivent dans les assets, qui restent
+           accessibles malgré ce réglage. */
+        reglages.setAllowFileAccess(false);
+        reglages.setAllowContentAccess(false);
+
+        /* Le seul pont entre la page et l'application — l'équivalent du
+           preload Electron : version, plateforme, et le service à tenir
+           pendant la capture. Rien d'autre ne passe. */
+        toile.addJavascriptInterface(new PontRapporteur(this), "rapporteurAndroid");
+
+        toile.setWebViewClient(new WebViewClient() {
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView vue, WebResourceRequest requete) {
+                Uri url = requete.getUrl();
+                String schema = url.getScheme() == null ? "" : url.getScheme();
+
+                /* Écrire à l'assistance depuis /aide : le courrieleur du
+                   téléphone prend le relais. */
+                if (schema.equals("mailto")) {
+                    ouvrirDehors(new Intent(Intent.ACTION_SENDTO, url));
+                    return true;
+                }
+                if (!schema.equals("https") && !schema.equals("http")) { return true; }
+
+                String hote = url.getHost() == null ? "" : url.getHost();
+                if (hote.equals("lerapporteur.com") || hote.equals("www.lerapporteur.com")) {
+                    /* L'accueil de l'application est /mobile, pas la page
+                       commerciale : le clic sur la marque ramène ici — le
+                       pendant du « retour-accueil » de l'application Windows. */
+                    String chemin = url.getPath() == null ? "/" : url.getPath();
+                    if (chemin.equals("/") || chemin.isEmpty()) {
+                        vue.loadUrl(SITE + "/mobile");
+                        return true;
+                    }
+                    if (chemin.equals("/en") || chemin.equals("/en/")) {
+                        vue.loadUrl(SITE + "/en/mobile");
+                        return true;
+                    }
+                    return false;
+                }
+                /* Le paiement se fait dans l'application : la caisse tierce a
+                   besoin de revenir vers le site AVEC sa session. */
+                if (hote.endsWith(".stripe.com") || hote.endsWith(".cinetpay.com")) {
+                    return false;
+                }
+                /* Tout autre site s'ouvre dans le vrai navigateur :
+                   l'application ne montre que lerapporteur.com. */
+                ouvrirDehors(new Intent(Intent.ACTION_VIEW, url));
+                return true;
+            }
+
+            @Override
+            public void onReceivedError(WebView vue, WebResourceRequest requete, WebResourceError erreur) {
+                /* Hors connexion, un écran local remplace la page — comme le
+                   fait l'accueil de secours de l'application Windows. */
+                if (requete.isForMainFrame()) {
+                    vue.loadUrl("file:///android_asset/hors-ligne.html");
+                }
+            }
+        });
+
+        toile.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public void onPermissionRequest(PermissionRequest demande) {
+                /* Le micro, uniquement, et uniquement pour notre site : la
+                   page d'un tiers (caisse de paiement) n'obtient rien. */
+                boolean pourNous = demande.getOrigin() != null
+                        && SITE.equals(demande.getOrigin().toString().replaceAll("/$", ""));
+                boolean veutMicro = false;
+                for (String ressource : demande.getResources()) {
+                    if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(ressource)) { veutMicro = true; }
+                }
+                if (!pourNous || !veutMicro) { demande.deny(); return; }
+
+                if (checkSelfPermission(Manifest.permission.RECORD_AUDIO)
+                        == PackageManager.PERMISSION_GRANTED) {
+                    demande.grant(new String[] { PermissionRequest.RESOURCE_AUDIO_CAPTURE });
+                    return;
+                }
+                /* Android doit d'abord donner le micro à l'application. On
+                   demande aussi les notifications : celle du service en a
+                   besoin pour se montrer pendant la séance. */
+                demandeEnAttente = demande;
+                String[] permissions = Build.VERSION.SDK_INT >= 33
+                        ? new String[] { Manifest.permission.RECORD_AUDIO, Manifest.permission.POST_NOTIFICATIONS }
+                        : new String[] { Manifest.permission.RECORD_AUDIO };
+                requestPermissions(permissions, DEMANDE_MICRO);
+            }
+        });
+
+        /* Les documents (exemple de compte rendu, reçus) se téléchargent avec
+           la session du site, dans le dossier Téléchargements du téléphone. */
+        toile.setDownloadListener((url, agent, disposition, type, taille) -> {
+            try {
+                DownloadManager.Request demande = new DownloadManager.Request(Uri.parse(url));
+                String biscuit = CookieManager.getInstance().getCookie(url);
+                if (biscuit != null) { demande.addRequestHeader("Cookie", biscuit); }
+                demande.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+                demande.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS,
+                        Uri.parse(url).getLastPathSegment());
+                getSystemService(DownloadManager.class).enqueue(demande);
+            } catch (Exception e) { /* lien inhabituel : on n'emporte pas l'application */ }
+        });
+
+        /* Depuis Android 15, l'application dessine sous les barres du système :
+           on rend au contenu la place qu'elles occupent, sur un fond assorti. */
+        FrameLayout cadre = new FrameLayout(this);
+        cadre.setBackgroundColor(getColor(R.color.fond));
+        cadre.addView(toile);
+        if (Build.VERSION.SDK_INT >= 35) {
+            cadre.setOnApplyWindowInsetsListener((vue, insets) -> {
+                android.graphics.Insets barres = insets.getInsets(
+                        WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
+                vue.setPadding(barres.left, barres.top, barres.right, barres.bottom);
+                return WindowInsets.CONSUMED;
+            });
+        }
+        setContentView(cadre);
+
+        toile.loadUrl(SITE + "/mobile");
+    }
+
+    /** Le service qui tient le micro éveillé, démarré par le pont quand la
+     *  page lance la capture. On vérifie que c'est bien NOTRE page qui parle :
+     *  le pont est offert à tout ce que le WebView affiche. */
+    void demarrerService() {
+        runOnUiThread(() -> {
+            String adresse = toile.getUrl();
+            if (adresse == null || !adresse.startsWith(SITE)) { return; }
+            startForegroundService(new Intent(this, ServiceEnregistrement.class));
+        });
+    }
+
+    void arreterService() {
+        runOnUiThread(() -> stopService(new Intent(this, ServiceEnregistrement.class)));
+    }
+
+    private void ouvrirDehors(Intent intention) {
+        try { startActivity(intention); } catch (Exception e) { /* rien pour l'ouvrir : tant pis */ }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int code, String[] permissions, int[] resultats) {
+        if (code != DEMANDE_MICRO || demandeEnAttente == null) { return; }
+        boolean micro = resultats.length > 0 && resultats[0] == PackageManager.PERMISSION_GRANTED;
+        if (micro) {
+            demandeEnAttente.grant(new String[] { PermissionRequest.RESOURCE_AUDIO_CAPTURE });
+        } else {
+            demandeEnAttente.deny();
+        }
+        demandeEnAttente = null;
+    }
+
+    @Override
+    public void onBackPressed() {
+        if (toile.canGoBack()) { toile.goBack(); } else { super.onBackPressed(); }
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        /* La session du client survit à la fermeture : même principe que la
+           partition persistante de l'application Windows. */
+        CookieManager.getInstance().flush();
+    }
+
+    @Override
+    protected void onDestroy() {
+        /* L'activité meurt pour de bon : plus personne ne grave. Le service
+           ne doit pas survivre à la page qui tenait le micro. */
+        if (isFinishing()) { stopService(new Intent(this, ServiceEnregistrement.class)); }
+        toile.destroy();
+        super.onDestroy();
+    }
+}

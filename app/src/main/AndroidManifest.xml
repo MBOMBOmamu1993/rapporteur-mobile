@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Rapporteur pour Android : la coquille mobile.
+
+  Comme l'application Windows, elle ne contient AUCUNE logique du service —
+  elle charge lerapporteur.com et lui ajoute les deux choses qu'un navigateur
+  de téléphone ne sait pas faire :
+    1. enregistrer ÉCRAN ÉTEINT (service de premier plan « microphone ») ;
+    2. rester une application : icône, session conservée, retour à l'accueil.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Les liens sortants (aide, conditions, sites tiers) partent vers le
+         vrai navigateur : on déclare vouloir le résoudre. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.SENDTO" />
+            <data android:scheme="mailto" />
+        </intent>
+    </queries>
+
+    <application
+        android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher"
+        android:allowBackup="true"
+        android:supportsRtl="false"
+        android:usesCleartextTraffic="false"
+        android:theme="@style/Theme.Rapporteur">
+
+        <!-- configChanges : une rotation ou un passage en sombre qui recrée
+             l'activité DÉTRUIRAIT le WebView — donc l'enregistrement en cours,
+             au milieu d'une réunion. On absorbe ces changements sans recréer. -->
+        <activity
+            android:name=".ActivitePrincipale"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|uiMode|density|locale|layoutDirection">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <service
+            android:name=".ServiceEnregistrement"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
+
+    </application>
+</manifest>

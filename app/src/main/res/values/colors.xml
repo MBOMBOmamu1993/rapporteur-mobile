@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- La charte du site : fond crème le jour, encre la nuit. -->
+    <color name="fond">#F0EEE6</color>
+    <!-- Le carré sombre de l'icône, identique jour et nuit. -->
+    <color name="icone_fond">#141413</color>
+</resources>

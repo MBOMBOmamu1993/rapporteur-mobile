@@ -1,0 +1,13 @@
+# Construction
+.gradle/
+build/
+local.properties
+
+# La clé d'envoi vers Play et ses mots de passe : JAMAIS dans le dépôt.
+# Sauvegardez cle-envoi.jks et keystore.properties ailleurs (voir README).
+cle-envoi.jks
+keystore.properties
+
+# Outils
+.idea/
+*.iml

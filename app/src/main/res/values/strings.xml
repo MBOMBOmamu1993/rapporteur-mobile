@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Rapporteur</string>
+    <string name="canal_nom">Enregistrement en cours</string>
+    <string name="notif_titre">Rapporteur enregistre votre réunion</string>
+    <string name="notif_texte">L\'écran peut s\'éteindre : la capture continue.</string>
+</resources>

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Rapporteur</string>
+    <string name="canal_nom">Recording in progress</string>
+    <string name="notif_titre">Rapporteur is recording your meeting</string>
+    <string name="notif_texte">The screen can turn off: the capture continues.</string>
+</resources>
