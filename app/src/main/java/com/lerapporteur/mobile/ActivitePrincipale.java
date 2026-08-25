@@ -47,6 +47,10 @@ public class ActivitePrincipale extends Activity {
     /* La demande de micro de la page, gardée le temps que l'utilisateur
        réponde à la fenêtre de permission d'Android. */
     private PermissionRequest demandeEnAttente;
+    /* Le défi de la connexion en cours : armé au départ vers le navigateur,
+       exigé par le serveur à l'échange du billet. Une application tierce qui
+       écouterait rapporteur:// aurait le billet, jamais ce défi. */
+    private String defi;
 
     @Override
     protected void onCreate(Bundle etat) {
@@ -125,6 +129,21 @@ public class ActivitePrincipale extends Activity {
                     }
                     if (chemin.equals("/en") || chemin.equals("/en/")) {
                         vue.loadUrl(SITE + "/en/mobile");
+                        return true;
+                    }
+                    /* La connexion Google se joue dans le NAVIGATEUR du
+                       téléphone : Google y est déjà connecté et ses
+                       vérifications (« c'est bien vous ? », clé d'accès) y
+                       aboutissent — dans une WebView, elles cassaient la
+                       transaction en route. L'application arme un défi ;
+                       la session reviendra par rapporteur://connexion, contre
+                       billet ET défi (voir /api/connexion/mobile). */
+                    if (chemin.equals("/api/connexion")) {
+                        defi = fabriquerDefi();
+                        String depart = url.toString()
+                                + (url.getQuery() == null ? "?" : "&")
+                                + "application=android&defi=" + defi;
+                        ouvrirDehors(new Intent(Intent.ACTION_VIEW, Uri.parse(depart)));
                         return true;
                     }
                     return false;
@@ -224,6 +243,37 @@ public class ActivitePrincipale extends Activity {
         setContentView(cadre);
 
         toile.loadUrl(SITE + "/mobile");
+        /* Lancée par le lien de retour de connexion alors qu'elle était
+           fermée : on tente l'échange — sans défi, le serveur ramènera à la
+           connexion, et le client recommencera d'un geste. */
+        traiterLienConnexion(getIntent());
+    }
+
+    /** Le retour de la connexion : rapporteur://connexion?billet=… — le
+     *  parcours Google s'est joué dans le navigateur, la session naît ici. */
+    @Override
+    protected void onNewIntent(Intent intention) {
+        super.onNewIntent(intention);
+        traiterLienConnexion(intention);
+    }
+
+    private void traiterLienConnexion(Intent intention) {
+        Uri lien = intention == null ? null : intention.getData();
+        if (lien == null || !"rapporteur".equals(lien.getScheme())
+                || !"connexion".equals(lien.getHost())) { return; }
+        String billet = lien.getQueryParameter("billet");
+        if (billet == null || billet.isEmpty()) { return; }
+        toile.loadUrl(SITE + "/api/connexion/mobile?billet=" + Uri.encode(billet)
+                + "&defi=" + (defi == null ? "" : defi));
+        defi = null;
+    }
+
+    private static String fabriquerDefi() {
+        byte[] graine = new byte[24];
+        new java.security.SecureRandom().nextBytes(graine);
+        StringBuilder texte = new StringBuilder();
+        for (byte octet : graine) { texte.append(String.format("%02x", octet)); }
+        return texte.toString();
     }
 
     /** Le service qui tient le micro éveillé, démarré par le pont quand la

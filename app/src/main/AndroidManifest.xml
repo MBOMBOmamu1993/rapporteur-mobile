@@ -50,6 +50,15 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- Le retour de la connexion Google : le parcours se joue dans le
+                 navigateur du téléphone, et ce lien ramène le billet de
+                 session dans l'application (voir /api/connexion/mobile). -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="rapporteur" android:host="connexion" />
+            </intent-filter>
         </activity>
 
         <service
