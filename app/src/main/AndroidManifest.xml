@@ -12,6 +12,10 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Exigée par le moteur WebRTC du WebView pour capter le micro : sans
+         elle, getUserMedia échoue MÊME quand le micro est accordé — panne
+         silencieuse payée en clientèle le 25/08/2026. -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <!-- La caméra ne sert qu'à la réunion ouverte DANS l'application, si le
          client veut y être vu ; l'enregistreur, lui, ne la touche jamais. -->
     <uses-permission android:name="android.permission.CAMERA" />

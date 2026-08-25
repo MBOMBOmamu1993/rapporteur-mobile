@@ -267,6 +267,17 @@ public class ActivitePrincipale extends Activity {
            fermée : on tente l'échange — sans défi, le serveur ramènera à la
            connexion, et le client recommencera d'un geste. */
         traiterLienConnexion(getIntent());
+
+        /* Banc d'essai du panneau réunion, constructions de DÉBOGAGE
+           seulement : `adb shell am start … --es essai_reunion <url>` ouvre
+           le panneau sans passer par la salle — c'est ainsi qu'on éprouve la
+           chaîne micro complète (fenêtre Android comprise) sans compte. */
+        if (BuildConfig.DEBUG) {
+            String essai = getIntent().getStringExtra("essai_reunion");
+            if (essai != null) {
+                toile.postDelayed(() -> ouvrirReunion(essai), 6000);
+            }
+        }
     }
 
     /** Le retour de la connexion : rapporteur://connexion?billet=… — le
@@ -484,6 +495,7 @@ public class ActivitePrincipale extends Activity {
                 demandeEnAttente.grant(new String[] { PermissionRequest.RESOURCE_AUDIO_CAPTURE });
             } else {
                 demandeEnAttente.deny();
+                proposerLesReglages();
             }
             demandeEnAttente = null;
             return;
@@ -494,9 +506,21 @@ public class ActivitePrincipale extends Activity {
                 demandeReunion.grant(accordes);
             } else {
                 demandeReunion.deny();
+                proposerLesReglages();
             }
             demandeReunion = null;
         }
+    }
+
+    /** Micro refusé « ne plus demander » : Android n'affichera plus jamais sa
+     *  fenêtre, et le client serait dans une impasse sans le savoir. On ouvre
+     *  la fiche de l'application, où le micro se rend en un geste. */
+    private void proposerLesReglages() {
+        if (shouldShowRequestPermissionRationale(Manifest.permission.RECORD_AUDIO)) { return; }
+        try {
+            startActivity(new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.parse("package:" + getPackageName())));
+        } catch (Exception e) { /* pas de fiche : le message de la page guide */ }
     }
 
     @Override
