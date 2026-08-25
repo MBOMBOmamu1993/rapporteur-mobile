@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Essai du sélecteur de fichiers</title>
+<style>
+body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+  background: #F0EEE6; color: #141413; font-family: system-ui, sans-serif; text-align: center; padding: 2rem; }
+input { font-size: 1.1rem; }
+b { display: block; margin-top: 1rem; font-size: 1.3rem; }
+</style>
+</head>
+<body>
+<main>
+  <p>Banc d'essai du sélecteur — le même crochet que « Déposez vos fichiers ».</p>
+  <input id="choix" type="file" accept="application/pdf,image/png,image/jpeg" multiple>
+  <b id="etat">EN ATTENTE</b>
+</main>
+<script>
+document.getElementById("choix").addEventListener("change", function () {
+  var n = this.files ? this.files.length : 0;
+  document.getElementById("etat").textContent =
+    n > 0 ? "CHOIX OK " + n + " fichier(s) " + (this.files[0].name || "") : "CHOIX VIDE";
+});
+</script>
+</body>
+</html>

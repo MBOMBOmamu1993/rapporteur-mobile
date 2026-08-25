@@ -47,6 +47,7 @@ public class ActivitePrincipale extends Activity {
     static final String SITE = "https://lerapporteur.com";
     private static final int DEMANDE_MICRO = 1;
     private static final int DEMANDE_REUNION = 2;
+    private static final int CHOIX_FICHIERS = 3;
 
     private WebView toile;
     /* La réunion en ligne tenue SUR CE téléphone : Android interdit à deux
@@ -61,6 +62,10 @@ public class ActivitePrincipale extends Activity {
        réponde à la fenêtre de permission d'Android. */
     private PermissionRequest demandeEnAttente;
     private PermissionRequest demandeReunion;
+    /* Le choix de fichiers en cours (modèle, logos de /personnaliser) :
+       la page attend sa réponse le temps que le sélecteur du téléphone
+       fasse son office. */
+    private android.webkit.ValueCallback<Uri[]> attenteFichiers;
     /* Le défi de la connexion en cours : armé au départ vers le navigateur,
        exigé par le serveur à l'échange du billet. Une application tierce qui
        écouterait rapporteur:// aurait le billet, jamais ce défi. */
@@ -229,6 +234,38 @@ public class ActivitePrincipale extends Activity {
                         : new String[] { Manifest.permission.RECORD_AUDIO };
                 requestPermissions(permissions, DEMANDE_MICRO);
             }
+
+            /* « Déposez vos fichiers » (/personnaliser) : sans ce crochet, un
+               WebView ne sait PAS ouvrir le sélecteur du téléphone — le clic
+               ne faisait rien. Panne constatée en clientèle le 25/08/2026. */
+            @Override
+            public boolean onShowFileChooser(WebView vue,
+                    android.webkit.ValueCallback<Uri[]> rappel, FileChooserParams reglagesChoix) {
+                if (attenteFichiers != null) { attenteFichiers.onReceiveValue(null); }
+                attenteFichiers = rappel;
+                Intent choix = new Intent(Intent.ACTION_GET_CONTENT);
+                choix.addCategory(Intent.CATEGORY_OPENABLE);
+                choix.setType("*/*");
+                /* La page dit ce qu'elle accepte (PDF, Word, images) : on le
+                   transmet quand ce sont de vrais types — les extensions
+                   nues, le sélecteur ne les comprend pas. */
+                java.util.List<String> types = new java.util.ArrayList<>();
+                for (String type : reglagesChoix.getAcceptTypes()) {
+                    if (type != null && type.contains("/")) { types.add(type.trim()); }
+                }
+                if (!types.isEmpty()) {
+                    choix.putExtra(Intent.EXTRA_MIME_TYPES, types.toArray(new String[0]));
+                }
+                choix.putExtra(Intent.EXTRA_ALLOW_MULTIPLE,
+                        reglagesChoix.getMode() == FileChooserParams.MODE_OPEN_MULTIPLE);
+                try {
+                    startActivityForResult(choix, CHOIX_FICHIERS);
+                } catch (Exception e) {
+                    attenteFichiers = null;
+                    return false;
+                }
+                return true;
+            }
         });
 
         /* Les documents (exemple de compte rendu, reçus) se téléchargent avec
@@ -283,6 +320,9 @@ public class ActivitePrincipale extends Activity {
             }
             if (getIntent().hasExtra("essai_micro")) {
                 toile.loadUrl("file:///android_asset/essai-micro.html");
+            }
+            if (getIntent().hasExtra("essai_fichier")) {
+                toile.loadUrl("file:///android_asset/essai-fichier.html");
             }
         }
     }
@@ -528,6 +568,32 @@ public class ActivitePrincipale extends Activity {
             startActivity(new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
                     Uri.parse("package:" + getPackageName())));
         } catch (Exception e) { /* pas de fiche : le message de la page guide */ }
+    }
+
+    /** Le retour du sélecteur de fichiers : un ou plusieurs, ou rien — la
+     *  page attend TOUJOURS une réponse, même vide, sinon plus aucun choix
+     *  de fichier ne fonctionne jusqu'au rechargement. */
+    @Override
+    protected void onActivityResult(int code, int resultat, Intent donnees) {
+        if (code == CHOIX_FICHIERS) {
+            if (attenteFichiers == null) { return; }
+            Uri[] fichiers = null;
+            if (resultat == RESULT_OK && donnees != null) {
+                if (donnees.getClipData() != null) {
+                    int n = donnees.getClipData().getItemCount();
+                    fichiers = new Uri[n];
+                    for (int i = 0; i < n; i++) {
+                        fichiers[i] = donnees.getClipData().getItemAt(i).getUri();
+                    }
+                } else if (donnees.getData() != null) {
+                    fichiers = new Uri[] { donnees.getData() };
+                }
+            }
+            attenteFichiers.onReceiveValue(fichiers);
+            attenteFichiers = null;
+            return;
+        }
+        super.onActivityResult(code, resultat, donnees);
     }
 
     @Override
