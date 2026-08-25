@@ -63,6 +63,13 @@ public class ActivitePrincipale extends Activity {
            accessibles malgré ce réglage. */
         reglages.setAllowFileAccess(false);
         reglages.setAllowContentAccess(false);
+        /* Google refuse sa page de connexion aux WebView déclarés (« ; wv »,
+           « Version/4.0 ») : on signe comme le Chrome du téléphone — le mot
+           « Android » reste, la salle d'enregistrement garde son mode
+           téléphone. Sans cela, « Continuer avec Google » est impossible
+           dans l'application. */
+        reglages.setUserAgentString(reglages.getUserAgentString()
+                .replace("; wv", "").replaceFirst("Version/\\d+\\.\\d+ ", ""));
 
         /* Le seul pont entre la page et l'application — l'équivalent du
            preload Electron : version, plateforme, et le service à tenir
@@ -99,9 +106,12 @@ public class ActivitePrincipale extends Activity {
                     }
                     return false;
                 }
-                /* Le paiement se fait dans l'application : la caisse tierce a
-                   besoin de revenir vers le site AVEC sa session. */
-                if (hote.endsWith(".stripe.com") || hote.endsWith(".cinetpay.com")) {
+                /* La connexion Google et le paiement se font dans
+                   l'application : ces parcours doivent revenir vers le site
+                   AVEC sa session — dans un navigateur externe, le client
+                   serait connecté dans Chrome et pas ici. */
+                if (hote.equals("accounts.google.com")
+                        || hote.endsWith(".stripe.com") || hote.endsWith(".cinetpay.com")) {
                     return false;
                 }
                 /* Tout autre site s'ouvre dans le vrai navigateur :
