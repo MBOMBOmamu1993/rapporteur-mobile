@@ -4,4 +4,6 @@
     <string name="canal_nom">Enregistrement en cours</string>
     <string name="notif_titre">Rapporteur enregistre votre réunion</string>
     <string name="notif_texte">L\'écran peut s\'éteindre : la capture continue.</string>
+    <string name="reunion_titre">Réunion — dans Rapporteur</string>
+    <string name="reunion_fermer">✕ Fermer</string>
 </resources>

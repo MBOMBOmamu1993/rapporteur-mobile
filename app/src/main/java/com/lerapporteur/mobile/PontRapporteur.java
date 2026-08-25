@@ -40,4 +40,18 @@ public class PontRapporteur {
     public void enregistrementTermine() {
         hote.arreterService();
     }
+
+    /** La réunion en ligne se tient SUR CE téléphone : elle s'ouvre dans un
+     *  panneau de l'application, au-dessus de la salle — c'est ce qui permet
+     *  à la réunion et à l'enregistreur de se partager le micro, ce
+     *  qu'Android refuse à deux applications séparées. */
+    @JavascriptInterface
+    public void ouvrirReunion(String lien) {
+        hote.ouvrirReunion(lien);
+    }
+
+    @JavascriptInterface
+    public void fermerReunion() {
+        hote.fermerReunion();
+    }
 }

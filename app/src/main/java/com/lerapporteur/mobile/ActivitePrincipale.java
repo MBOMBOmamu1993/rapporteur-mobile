@@ -36,17 +36,31 @@ import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.view.Gravity;
+import android.view.View;
 import android.widget.FrameLayout;
+import android.widget.LinearLayout;
+import android.widget.TextView;
 
 public class ActivitePrincipale extends Activity {
 
     static final String SITE = "https://lerapporteur.com";
     private static final int DEMANDE_MICRO = 1;
+    private static final int DEMANDE_REUNION = 2;
 
     private WebView toile;
+    /* La réunion en ligne tenue SUR CE téléphone : Android interdit à deux
+       APPLICATIONS de se partager le micro (Teams l'aurait, nous le silence),
+       mais au sein d'UNE MÊME application, la réunion et l'enregistreur
+       captent ensemble. D'où ce deuxième panneau : la réunion web en haut,
+       la salle d'enregistrement en bas. */
+    private WebView reunion;
+    private LinearLayout colonne;
+    private LinearLayout conteneurReunion;
     /* La demande de micro de la page, gardée le temps que l'utilisateur
        réponde à la fenêtre de permission d'Android. */
     private PermissionRequest demandeEnAttente;
+    private PermissionRequest demandeReunion;
     /* Le défi de la connexion en cours : armé au départ vers le navigateur,
        exigé par le serveur à l'échange du billet. Une application tierce qui
        écouterait rapporteur:// aurait le billet, jamais ce défi. */
@@ -228,10 +242,16 @@ public class ActivitePrincipale extends Activity {
         });
 
         /* Depuis Android 15, l'application dessine sous les barres du système :
-           on rend au contenu la place qu'elles occupent, sur un fond assorti. */
+           on rend au contenu la place qu'elles occupent, sur un fond assorti.
+           La colonne porte deux étages : la réunion (fermée par défaut) et la
+           salle d'enregistrement. */
+        colonne = new LinearLayout(this);
+        colonne.setOrientation(LinearLayout.VERTICAL);
+        colonne.addView(toile, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
         FrameLayout cadre = new FrameLayout(this);
         cadre.setBackgroundColor(getColor(R.color.fond));
-        cadre.addView(toile);
+        cadre.addView(colonne);
         if (Build.VERSION.SDK_INT >= 35) {
             cadre.setOnApplyWindowInsetsListener((vue, insets) -> {
                 android.graphics.Insets barres = insets.getInsets(
@@ -295,16 +315,188 @@ public class ActivitePrincipale extends Activity {
         try { startActivity(intention); } catch (Exception e) { /* rien pour l'ouvrir : tant pis */ }
     }
 
+    /* --- La réunion en ligne, tenue DANS l'application ---------------------
+       Android interdit à deux applications de se partager le micro : une
+       réunion Teams tenue dans SON application rend l'enregistreur sourd. Au
+       sein d'une même application, en revanche, la réunion (en version web)
+       et la salle d'enregistrement captent le micro ENSEMBLE : la réunion
+       entend le client, l'enregistreur entend le client ET le haut-parleur. */
+
+    /** Les services de réunion auxquels le panneau accorde micro et caméra.
+     *  Tout autre site s'affiche mais n'obtient aucun capteur. */
+    private static boolean hoteDeReunion(String hote) {
+        if (hote == null) { return false; }
+        return hote.equals("meet.google.com")
+                || hote.equals("teams.microsoft.com") || hote.endsWith(".teams.microsoft.com")
+                || hote.equals("teams.live.com") || hote.endsWith(".teams.live.com")
+                || hote.equals("zoom.us") || hote.endsWith(".zoom.us")
+                || hote.endsWith(".webex.com")
+                || hote.equals("meet.jit.si")
+                || hote.equals("whereby.com") || hote.endsWith(".whereby.com");
+    }
+
+    /** Appelé par le pont : la salle d'enregistrement demande d'ouvrir la
+     *  réunion ici. Panneau du haut, sans pont natif — la page de réunion
+     *  n'obtient rien d'autre que ses capteurs. */
+    void ouvrirReunion(String brut) {
+        runOnUiThread(() -> {
+            try {
+                String depuis = toile.getUrl();
+                if (depuis == null || !depuis.startsWith(SITE)) { return; }
+                Uri lien = Uri.parse(brut == null ? "" : brut.trim());
+                if (!"https".equals(lien.getScheme())) { return; }
+                if (reunion == null) { creerPanneauReunion(); }
+                conteneurReunion.setVisibility(View.VISIBLE);
+                reunion.loadUrl(lien.toString());
+            } catch (Exception e) {
+                /* Quoi qu'il arrive, le panneau ne doit jamais emporter la
+                   salle d'enregistrement avec lui. */
+            }
+        });
+    }
+
+    void fermerReunion() {
+        runOnUiThread(() -> {
+            try {
+                if (reunion == null) { return; }
+                reunion.loadUrl("about:blank");
+                conteneurReunion.setVisibility(View.GONE);
+            } catch (Exception e) { /* même règle : la salle avant tout */ }
+        });
+    }
+
+    private void creerPanneauReunion() {
+        reunion = new WebView(this);
+        WebSettings reglages = reunion.getSettings();
+        reglages.setJavaScriptEnabled(true);
+        reglages.setDomStorageEnabled(true);
+        reglages.setMediaPlaybackRequiresUserGesture(false);
+        reglages.setAllowFileAccess(false);
+        reglages.setAllowContentAccess(false);
+        /* Même signature que la salle : les services de réunion servent leur
+           version web complète au Chrome du téléphone. */
+        reglages.setUserAgentString(reglages.getUserAgentString()
+                .replace("; wv", "").replaceFirst("Version/\\d+\\.\\d+ ", ""));
+
+        reunion.setWebViewClient(new WebViewClient() {
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView vue, WebResourceRequest requete) {
+                Uri url = requete.getUrl();
+                String schema = url.getScheme() == null ? "" : url.getScheme();
+                /* Les liens « ouvrez l'application » des services de réunion
+                   ramèneraient la réunion HORS de Rapporteur — donc hors du
+                   micro partagé. On reste sur la version web. */
+                if (schema.equals("intent")) {
+                    try {
+                        Intent application = Intent.parseUri(url.toString(), Intent.URI_INTENT_SCHEME);
+                        String repli = application.getStringExtra("browser_fallback_url");
+                        if (repli != null && repli.startsWith("https://")) { vue.loadUrl(repli); }
+                    } catch (Exception e) { /* on reste où l'on est */ }
+                    return true;
+                }
+                return !schema.equals("https") && !schema.equals("http");
+            }
+        });
+        reunion.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public void onPermissionRequest(PermissionRequest demande) {
+                boolean confiance = demande.getOrigin() != null
+                        && hoteDeReunion(demande.getOrigin().getHost());
+                if (!confiance) { demande.deny(); return; }
+                java.util.List<String> manquantes = new java.util.ArrayList<>();
+                if (checkSelfPermission(Manifest.permission.RECORD_AUDIO)
+                        != PackageManager.PERMISSION_GRANTED) {
+                    manquantes.add(Manifest.permission.RECORD_AUDIO);
+                }
+                for (String ressource : demande.getResources()) {
+                    if (PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(ressource)
+                            && checkSelfPermission(Manifest.permission.CAMERA)
+                                    != PackageManager.PERMISSION_GRANTED) {
+                        manquantes.add(Manifest.permission.CAMERA);
+                    }
+                }
+                if (manquantes.isEmpty()) {
+                    demande.grant(capteursAccordes(demande));
+                    return;
+                }
+                demandeReunion = demande;
+                requestPermissions(manquantes.toArray(new String[0]), DEMANDE_REUNION);
+            }
+        });
+
+        /* La barre du panneau : dire ce qui est ouvert, et le refermer. */
+        TextView titre = new TextView(this);
+        titre.setText(R.string.reunion_titre);
+        titre.setTextColor(0xFFF0EEE6);
+        titre.setPadding(dp(16), 0, 0, 0);
+        titre.setGravity(Gravity.CENTER_VERTICAL);
+        TextView fermer = new TextView(this);
+        fermer.setText(R.string.reunion_fermer);
+        fermer.setTextColor(0xFFE08D6D);
+        fermer.setPadding(dp(16), 0, dp(16), 0);
+        fermer.setGravity(Gravity.CENTER_VERTICAL);
+        fermer.setOnClickListener((v) -> fermerReunion());
+        LinearLayout barre = new LinearLayout(this);
+        barre.setOrientation(LinearLayout.HORIZONTAL);
+        barre.setBackgroundColor(0xFF141413);
+        barre.addView(titre, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f));
+        barre.addView(fermer, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.MATCH_PARENT));
+
+        conteneurReunion = new LinearLayout(this);
+        conteneurReunion.setOrientation(LinearLayout.VERTICAL);
+        conteneurReunion.addView(barre, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(42)));
+        conteneurReunion.addView(reunion, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
+        colonne.addView(conteneurReunion, 0, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.5f));
+    }
+
+    /** Les capteurs que la page de réunion a demandés ET qu'Android nous a
+     *  donnés — jamais plus. La caméra refusée n'empêche pas le micro. */
+    private String[] capteursAccordes(PermissionRequest demande) {
+        boolean micro = checkSelfPermission(Manifest.permission.RECORD_AUDIO)
+                == PackageManager.PERMISSION_GRANTED;
+        boolean camera = checkSelfPermission(Manifest.permission.CAMERA)
+                == PackageManager.PERMISSION_GRANTED;
+        java.util.List<String> accordes = new java.util.ArrayList<>();
+        for (String ressource : demande.getResources()) {
+            if (micro && PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(ressource)) {
+                accordes.add(ressource);
+            }
+            if (camera && PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(ressource)) {
+                accordes.add(ressource);
+            }
+        }
+        return accordes.toArray(new String[0]);
+    }
+
+    private int dp(int valeur) {
+        return Math.round(valeur * getResources().getDisplayMetrics().density);
+    }
+
     @Override
     public void onRequestPermissionsResult(int code, String[] permissions, int[] resultats) {
-        if (code != DEMANDE_MICRO || demandeEnAttente == null) { return; }
-        boolean micro = resultats.length > 0 && resultats[0] == PackageManager.PERMISSION_GRANTED;
-        if (micro) {
-            demandeEnAttente.grant(new String[] { PermissionRequest.RESOURCE_AUDIO_CAPTURE });
-        } else {
-            demandeEnAttente.deny();
+        if (code == DEMANDE_MICRO && demandeEnAttente != null) {
+            boolean micro = resultats.length > 0 && resultats[0] == PackageManager.PERMISSION_GRANTED;
+            if (micro) {
+                demandeEnAttente.grant(new String[] { PermissionRequest.RESOURCE_AUDIO_CAPTURE });
+            } else {
+                demandeEnAttente.deny();
+            }
+            demandeEnAttente = null;
+            return;
         }
-        demandeEnAttente = null;
+        if (code == DEMANDE_REUNION && demandeReunion != null) {
+            String[] accordes = capteursAccordes(demandeReunion);
+            if (accordes.length > 0) {
+                demandeReunion.grant(accordes);
+            } else {
+                demandeReunion.deny();
+            }
+            demandeReunion = null;
+        }
     }
 
     @Override
@@ -325,6 +517,7 @@ public class ActivitePrincipale extends Activity {
         /* L'activité meurt pour de bon : plus personne ne grave. Le service
            ne doit pas survivre à la page qui tenait le micro. */
         if (isFinishing()) { stopService(new Intent(this, ServiceEnregistrement.class)); }
+        if (reunion != null) { reunion.destroy(); }
         toile.destroy();
         super.onDestroy();
     }

@@ -4,4 +4,6 @@
     <string name="canal_nom">Recording in progress</string>
     <string name="notif_titre">Rapporteur is recording your meeting</string>
     <string name="notif_texte">The screen can turn off: the capture continues.</string>
+    <string name="reunion_titre">Meeting — inside Rapporteur</string>
+    <string name="reunion_fermer">✕ Close</string>
 </resources>
