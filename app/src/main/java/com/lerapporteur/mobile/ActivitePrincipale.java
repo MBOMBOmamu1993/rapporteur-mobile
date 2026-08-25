@@ -88,7 +88,30 @@ public class ActivitePrincipale extends Activity {
                     ouvrirDehors(new Intent(Intent.ACTION_SENDTO, url));
                     return true;
                 }
-                if (!schema.equals("https") && !schema.equals("http")) { return true; }
+                /* Les liens d'application (intent://…) : la page de connexion
+                   Google en pose sur certains téléphones. Les avaler en
+                   silence laissait le client dans un cul-de-sac — on tente
+                   l'application visée, sinon la page de repli que le lien
+                   transporte, et la connexion continue dans la WebView. */
+                if (schema.equals("intent")) {
+                    try {
+                        Intent application = Intent.parseUri(url.toString(), Intent.URI_INTENT_SCHEME);
+                        String repli = application.getStringExtra("browser_fallback_url");
+                        if (repli != null && repli.startsWith("https://")) {
+                            vue.loadUrl(repli);
+                        } else {
+                            application.addCategory(Intent.CATEGORY_BROWSABLE);
+                            application.setComponent(null);
+                            application.setSelector(null);
+                            startActivity(application);
+                        }
+                    } catch (Exception e) { /* rien à ouvrir : on reste sur la page */ }
+                    return true;
+                }
+                if (!schema.equals("https") && !schema.equals("http")) {
+                    ouvrirDehors(new Intent(Intent.ACTION_VIEW, url));
+                    return true;
+                }
 
                 String hote = url.getHost() == null ? "" : url.getHost();
                 if (hote.equals("lerapporteur.com") || hote.equals("www.lerapporteur.com")) {
@@ -109,8 +132,11 @@ public class ActivitePrincipale extends Activity {
                 /* La connexion Google et le paiement se font dans
                    l'application : ces parcours doivent revenir vers le site
                    AVEC sa session — dans un navigateur externe, le client
-                   serait connecté dans Chrome et pas ici. */
-                if (hote.equals("accounts.google.com")
+                   serait connecté dans Chrome et pas ici. accounts.youtube.com
+                   et *.gstatic.com font partie du parcours Google sur
+                   certains téléphones. */
+                if (hote.equals("accounts.google.com") || hote.equals("accounts.youtube.com")
+                        || hote.endsWith(".gstatic.com")
                         || hote.endsWith(".stripe.com") || hote.endsWith(".cinetpay.com")) {
                     return false;
                 }
@@ -127,6 +153,15 @@ public class ActivitePrincipale extends Activity {
                 if (requete.isForMainFrame()) {
                     vue.loadUrl("file:///android_asset/hors-ligne.html");
                 }
+            }
+
+            @Override
+            public boolean onRenderProcessGone(WebView vue, android.webkit.RenderProcessGoneDetail detail) {
+                /* Le moteur du WebView est mort (mémoire, mise à jour du
+                   système…) : sans ce geste, l'application resterait un écran
+                   blanc qui « ne s'ouvre plus ». On repart proprement. */
+                recreate();
+                return true;
             }
         });
 
