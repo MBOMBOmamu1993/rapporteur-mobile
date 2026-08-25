@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Essai du micro</title>
+<style>
+body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+  background: #F0EEE6; color: #141413; font-family: system-ui, sans-serif; text-align: center; padding: 2rem; }
+b { font-size: 1.4rem; }
+</style>
+</head>
+<body>
+<main>
+  <p>Banc d'essai du micro — la même chaîne que la salle d'enregistrement.</p>
+  <b id="etat">PRÉPARATION</b>
+</main>
+<script>
+/* Rejoue EXACTEMENT ce que fait la salle en mode téléphone : getUserMedia
+   sans annulation d'écho, MediaRecorder à 24 kb/s, morceaux chaque seconde.
+   Cinq secondes, puis le verdict en clair — lisible par uiautomator. */
+(async function () {
+  var etat = document.getElementById("etat");
+  try {
+    var flux = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: true },
+    });
+    var graveur = new MediaRecorder(flux, { audioBitsPerSecond: 24000 });
+    var octets = 0;
+    graveur.ondataavailable = function (ev) { octets += ev.data ? ev.data.size : 0; };
+    graveur.onstop = function () {
+      etat.textContent = octets > 0 ? "CAPTURE OK " + octets + " octets" : "CAPTURE VIDE";
+    };
+    graveur.start(1000);
+    etat.textContent = "CAPTURE EN COURS";
+    setTimeout(function () {
+      graveur.stop();
+      flux.getTracks().forEach(function (t) { t.stop(); });
+    }, 5000);
+  } catch (e) {
+    etat.textContent = "ECHEC " + (e && e.name ? e.name : "inconnu");
+  }
+})();
+</script>
+</body>
+</html>

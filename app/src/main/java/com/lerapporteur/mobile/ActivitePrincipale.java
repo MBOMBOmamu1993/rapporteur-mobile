@@ -204,7 +204,11 @@ public class ActivitePrincipale extends Activity {
                 /* Le micro, uniquement, et uniquement pour notre site : la
                    page d'un tiers (caisse de paiement) n'obtient rien. */
                 boolean pourNous = demande.getOrigin() != null
-                        && SITE.equals(demande.getOrigin().toString().replaceAll("/$", ""));
+                        && (SITE.equals(demande.getOrigin().toString().replaceAll("/$", ""))
+                            /* Constructions de débogage : le banc d'essai du
+                               micro vit dans les assets. Jamais en production. */
+                            || (BuildConfig.DEBUG
+                                && demande.getOrigin().toString().startsWith("file:")));
                 boolean veutMicro = false;
                 for (String ressource : demande.getResources()) {
                     if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(ressource)) { veutMicro = true; }
@@ -276,6 +280,9 @@ public class ActivitePrincipale extends Activity {
             String essai = getIntent().getStringExtra("essai_reunion");
             if (essai != null) {
                 toile.postDelayed(() -> ouvrirReunion(essai), 6000);
+            }
+            if (getIntent().hasExtra("essai_micro")) {
+                toile.loadUrl("file:///android_asset/essai-micro.html");
             }
         }
     }
