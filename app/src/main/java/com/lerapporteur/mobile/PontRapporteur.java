@@ -29,6 +29,14 @@ public class PontRapporteur {
         return "android";
     }
 
+    /** « play » = installée depuis Google Play : les achats se font hors de
+     *  l'application (règle Paiements de Google Play), le site masque prix et
+     *  caisses. « directe » = APK du site, caisses intégrées comme toujours. */
+    @JavascriptInterface
+    public String boutique() {
+        return BuildConfig.BOUTIQUE;
+    }
+
     /** La page lance la capture : le service tient le micro, écran éteint compris. */
     @JavascriptInterface
     public void enregistrementDemarre() {

@@ -165,7 +165,24 @@ public class ActivitePrincipale extends Activity {
                         ouvrirDehors(new Intent(Intent.ACTION_VIEW, Uri.parse(depart)));
                         return true;
                     }
+                    /* Version Google Play : la règle « Paiements » interdit de
+                       vendre dans l'application. Le site masque déjà tout
+                       chemin d'achat ; ceci est la ceinture ET les bretelles —
+                       même si sa page changeait, tarifs et caisse ne se
+                       chargent jamais ici. */
+                    if ("play".equals(BuildConfig.BOUTIQUE)
+                            && (chemin.startsWith("/tarifs") || chemin.startsWith("/paiement")
+                                || chemin.startsWith("/en/tarifs") || chemin.startsWith("/en/paiement"))) {
+                        vue.loadUrl(SITE + (chemin.startsWith("/en/") ? "/en/mobile" : "/mobile"));
+                        return true;
+                    }
                     return false;
+                }
+                /* Version Google Play : aucune caisse de paiement ne se charge,
+                   ni ici ni dans le navigateur — le lien reste lettre morte. */
+                if ("play".equals(BuildConfig.BOUTIQUE)
+                        && (hote.endsWith(".stripe.com") || hote.endsWith(".cinetpay.com"))) {
+                    return true;
                 }
                 /* La connexion Google et le paiement se font dans
                    l'application : ces parcours doivent revenir vers le site

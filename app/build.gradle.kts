@@ -20,8 +20,26 @@ android {
         applicationId = "com.lerapporteur.mobile"
         minSdk = 26
         targetSdk = 36
-        versionCode = 7
-        versionName = "1.1.2"
+        versionCode = 8
+        versionName = "1.1.3"
+    }
+
+    /* Deux canaux de distribution, même application :
+       — « play » : l'AAB envoyé sur Google Play. Les achats se font hors
+         application (règle Paiements de Google Play) : le site masque prix
+         et caisses quand le pont annonce cette boutique.
+       — « directe » : l'APK téléchargé depuis lerapporteur.com, caisses
+         intégrées, comme toujours. */
+    flavorDimensions += "canal"
+    productFlavors {
+        create("play") {
+            dimension = "canal"
+            buildConfigField("String", "BOUTIQUE", "\"play\"")
+        }
+        create("directe") {
+            dimension = "canal"
+            buildConfigField("String", "BOUTIQUE", "\"directe\"")
+        }
     }
 
     signingConfigs {
