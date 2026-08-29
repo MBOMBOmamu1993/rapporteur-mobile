@@ -86,6 +86,14 @@ public class ActivitePrincipale extends Activity {
            accessibles malgré ce réglage. */
         reglages.setAllowFileAccess(false);
         reglages.setAllowContentAccess(false);
+        /* Verrous explicites contre l'injection — ce sont les défauts
+           modernes, gravés ici pour qu'aucune mise à jour ne les rouvre :
+           jamais de HTTP au milieu du HTTPS, et les écrans embarqués
+           (file://) ne peuvent ni lire d'autres fichiers ni parler au web
+           sous leur origine. */
+        reglages.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
+        reglages.setAllowFileAccessFromFileURLs(false);
+        reglages.setAllowUniversalAccessFromFileURLs(false);
         /* Google refuse sa page de connexion aux WebView déclarés (« ; wv »,
            « Version/4.0 ») : on signe comme le Chrome du téléphone — le mot
            « Android » reste, la salle d'enregistrement garde son mode
@@ -376,10 +384,23 @@ public class ActivitePrincipale extends Activity {
      *  le pont est offert à tout ce que le WebView affiche. */
     void demarrerService() {
         runOnUiThread(() -> {
-            String adresse = toile.getUrl();
-            if (adresse == null || !adresse.startsWith(SITE)) { return; }
+            if (!pageDeChezNous(toile.getUrl())) { return; }
             startForegroundService(new Intent(this, ServiceEnregistrement.class));
         });
+    }
+
+    /** La page affichée est-elle vraiment la nôtre ? Comparaison EXACTE du
+     *  schéma et de l'hôte — un préfixe (« startsWith ») laisserait passer
+     *  « lerapporteur.com.pirate.tld ». C'est la serrure des gestes que le
+     *  pont accorde, car il est offert à tout ce que le WebView affiche. */
+    private static boolean pageDeChezNous(String adresse) {
+        if (adresse == null) { return false; }
+        try {
+            Uri u = Uri.parse(adresse);
+            return "https".equals(u.getScheme())
+                    && ("lerapporteur.com".equals(u.getHost())
+                        || "www.lerapporteur.com".equals(u.getHost()));
+        } catch (Exception e) { return false; }
     }
 
     void arreterService() {
@@ -416,8 +437,7 @@ public class ActivitePrincipale extends Activity {
     void ouvrirReunion(String brut) {
         runOnUiThread(() -> {
             try {
-                String depuis = toile.getUrl();
-                if (depuis == null || !depuis.startsWith(SITE)) { return; }
+                if (!pageDeChezNous(toile.getUrl())) { return; }
                 Uri lien = Uri.parse(brut == null ? "" : brut.trim());
                 if (!"https".equals(lien.getScheme())) { return; }
                 if (reunion == null) { creerPanneauReunion(); }
