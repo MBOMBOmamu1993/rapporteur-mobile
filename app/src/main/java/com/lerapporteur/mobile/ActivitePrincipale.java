@@ -71,6 +71,11 @@ public class ActivitePrincipale extends Activity {
        écouterait rapporteur:// aurait le billet, jamais ce défi. */
     private String defi;
 
+    /* Une erreur de page principale a été rapportée pendant le chargement en
+       cours ; on tranche à onPageFinished (voir là). */
+    private boolean echecPrincipal;
+    private boolean relanceFaite;
+
     @Override
     protected void onCreate(Bundle etat) {
         super.onCreate(etat);
@@ -210,12 +215,62 @@ public class ActivitePrincipale extends Activity {
             }
 
             @Override
+            public void onPageStarted(WebView vue, String url, android.graphics.Bitmap favicon) {
+                echecPrincipal = false;
+            }
+
+            @Override
             public void onReceivedError(WebView vue, WebResourceRequest requete, WebResourceError erreur) {
-                /* Hors connexion, un écran local remplace la page — comme le
-                   fait l'accueil de secours de l'application Windows. */
-                if (requete.isForMainFrame()) {
-                    vue.loadUrl("file:///android_asset/hors-ligne.html");
+                /* Une erreur de page principale n'est PAS toujours une page
+                   absente. Hors connexion, le site garde ses écrans sur
+                   l'appareil (service worker sw.js) ; la tentative réseau qui
+                   précède la copie échoue, et le WebView la rapporte ici —
+                   AVANT que la copie ne s'affiche. Sauter tout de suite sur
+                   l'écran hors ligne, c'était enterrer la page qui arrivait
+                   (02/09/2026 : « Pas de connexion » alors que tout était en
+                   cache). On note l'échec et on juge à la fin du chargement. */
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d("Rapporteur", "onReceivedError principal=" + requete.isForMainFrame()
+                            + " code=" + erreur.getErrorCode() + " " + erreur.getDescription()
+                            + " url=" + requete.getUrl() + " page=" + vue.getUrl());
                 }
+                if (requete.isForMainFrame()) {
+                    /* Banc (débogage) : `--ez ancien true` rejoue le réflexe
+                       d'avant — l'écran hors ligne sans attendre. */
+                    if (BuildConfig.DEBUG && getIntent().getBooleanExtra("ancien", false)) {
+                        vue.loadUrl("file:///android_asset/hors-ligne.html");
+                        return;
+                    }
+                    echecPrincipal = true;
+                }
+            }
+
+            @Override
+            public void onPageFinished(WebView vue, String url) {
+                if (!echecPrincipal || url == null || url.startsWith("file:")) { relanceFaite = false; return; }
+                echecPrincipal = false;
+                /* Ce qui s'est affiché : notre page (elle charge toujours
+                   /js/langue.js) — rien à faire ; la page d'erreur du moteur
+                   — l'écran hors ligne, comme l'accueil de secours de
+                   l'application Windows. */
+                vue.evaluateJavascript(
+                        "!!document.querySelector('script[src*=\"/js/langue.js\"]')",
+                        resultat -> {
+                            if (BuildConfig.DEBUG) {
+                                android.util.Log.d("Rapporteur", "onPageFinished après échec : notre page = " + resultat);
+                            }
+                            if ("true".equals(resultat)) { relanceFaite = false; return; }
+                            /* Au tout premier chargement, le moteur peut ne pas
+                               avoir encore ouvert la réserve du service : une
+                               seule relance, un instant plus tard. */
+                            if (!relanceFaite && url.startsWith(SITE)) {
+                                relanceFaite = true;
+                                if (BuildConfig.DEBUG) { android.util.Log.d("Rapporteur", "relance unique de " + url); }
+                                vue.postDelayed(() -> vue.loadUrl(url), 400);
+                                return;
+                            }
+                            vue.loadUrl("file:///android_asset/hors-ligne.html");
+                        });
             }
 
             @Override
@@ -328,6 +383,15 @@ public class ActivitePrincipale extends Activity {
         }
         setContentView(cadre);
 
+        /* Le site garde les écrans de l'application sur l'appareil (service
+           worker sw.js) : c'est ce qui permet d'ouvrir et d'enregistrer sans
+           réseau. Dans un WebView qui vient de naître, la TOUTE PREMIÈRE
+           navigation partait avant que ce service ne soit réveillé, et hors
+           ligne elle échouait — écran « Pas de connexion » alors que tout
+           était en cache (02/09/2026). On réveille le service avant de
+           charger ; et si la première page échoue quand même, onPageFinished
+           la relance une fois (voir là). */
+        try { android.webkit.ServiceWorkerController.getInstance(); } catch (Throwable e) { /* WebView sans service worker */ }
         toile.loadUrl(SITE + "/mobile");
         /* Lancée par le lien de retour de connexion alors qu'elle était
            fermée : on tente l'échange — sans défi, le serveur ramènera à la
