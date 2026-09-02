@@ -35,7 +35,8 @@ button {
     <path d="M10 16a6 6 0 0 0 12 0M16 22v3" stroke="#CC785C" stroke-width="2" fill="none" stroke-linecap="round"></path>
   </svg>
   <h1 id="titre">Pas de connexion</h1>
-  <p id="texte">Rapporteur n'arrive pas à joindre le réseau. Vérifiez votre connexion, puis réessayez.</p>
+  <p id="texte">Rapporteur n'arrive pas à joindre le réseau, et cet appareil n'a pas encore gardé ses écrans : ouvrez l'application une première fois avec la connexion. Ensuite, elle s'ouvre et enregistre sans réseau — seul l'envoi attend la connexion.</p>
+  <p id="attente" hidden>La connexion est revenue, un instant…</p>
   <button id="bouton" type="button">Réessayer</button>
 </main>
 <script>
@@ -47,11 +48,19 @@ button {
     document.documentElement.lang = "en";
     document.getElementById("titre").textContent = "No connection";
     document.getElementById("texte").textContent =
-      "Rapporteur can't reach the network. Check your connection, then try again.";
+      "Rapporteur can't reach the network, and this device hasn't kept its screens yet: open the app once with a connection. From then on it opens and records offline — only the upload waits for the network.";
+    document.getElementById("attente").textContent = "The connection is back, one moment…";
     document.getElementById("bouton").textContent = "Try again";
   }
-  document.getElementById("bouton").addEventListener("click", function () {
+  function revenir() {
     window.location.replace("https://lerapporteur.com" + (en ? "/en/mobile" : "/mobile"));
+  }
+  document.getElementById("bouton").addEventListener("click", revenir);
+  /* Le réseau revient souvent tout seul (wifi retrouvé, données rallumées) :
+     on repart alors sans attendre un geste. */
+  window.addEventListener("online", function () {
+    document.getElementById("attente").hidden = false;
+    setTimeout(revenir, 800);
   });
 })();
 </script>
