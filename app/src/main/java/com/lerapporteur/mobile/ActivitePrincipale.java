@@ -79,6 +79,10 @@ public class ActivitePrincipale extends Activity {
     @Override
     protected void onCreate(Bundle etat) {
         super.onCreate(etat);
+        if (Build.VERSION.SDK_INT >= 33) {
+            getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
+                    android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT, this::revenir);
+        }
 
         toile = new WebView(this);
         WebSettings reglages = toile.getSettings();
@@ -462,13 +466,17 @@ public class ActivitePrincipale extends Activity {
         try {
             Uri u = Uri.parse(adresse);
             return "https".equals(u.getScheme())
+                    && (u.getPort() == -1 || u.getPort() == 443)
                     && ("lerapporteur.com".equals(u.getHost())
                         || "www.lerapporteur.com".equals(u.getHost()));
         } catch (Exception e) { return false; }
     }
 
     void arreterService() {
-        runOnUiThread(() -> stopService(new Intent(this, ServiceEnregistrement.class)));
+        runOnUiThread(() -> {
+            if (!pageDeChezNous(toile.getUrl())) { return; }
+            stopService(new Intent(this, ServiceEnregistrement.class));
+        });
     }
 
     private void ouvrirDehors(Intent intention) {
@@ -560,6 +568,8 @@ public class ActivitePrincipale extends Activity {
             @Override
             public void onPermissionRequest(PermissionRequest demande) {
                 boolean confiance = demande.getOrigin() != null
+                        && "https".equals(demande.getOrigin().getScheme())
+                        && (demande.getOrigin().getPort() == -1 || demande.getOrigin().getPort() == 443)
                         && hoteDeReunion(demande.getOrigin().getHost());
                 if (!confiance) { demande.deny(); return; }
                 java.util.List<String> manquantes = new java.util.ArrayList<>();
@@ -698,8 +708,19 @@ public class ActivitePrincipale extends Activity {
     }
 
     @Override
+    @android.annotation.SuppressLint("GestureBackNavigation") // Android < 13 ; les versions récentes utilisent le dispatcher ci-dessus.
     public void onBackPressed() {
-        if (toile.canGoBack()) { toile.goBack(); } else { super.onBackPressed(); }
+        revenir();
+    }
+
+    private void revenir() {
+        if (conteneurReunion != null && conteneurReunion.getVisibility() == View.VISIBLE) {
+            fermerReunion();
+        } else if (toile != null && toile.canGoBack()) {
+            toile.goBack();
+        } else {
+            moveTaskToBack(true);
+        }
     }
 
     @Override

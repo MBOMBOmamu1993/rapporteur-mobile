@@ -46,7 +46,7 @@ public class ServiceEnregistrement extends Service {
                 .setContentIntent(retour)
                 .build();
 
-        if (Build.VERSION.SDK_INT >= 29) {
+        if (Build.VERSION.SDK_INT >= 30) {
             startForeground(1, avis, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE);
         } else {
             startForeground(1, avis);
