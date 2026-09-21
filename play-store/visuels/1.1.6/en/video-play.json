@@ -1,0 +1,35 @@
+{
+  "scenes": [
+    {
+      "id": "titre",
+      "t": 0.087,
+      "vo": "C:\\Users\\felly\\rapporteur-mobile\\play-store\\visuels\\1.1.6\\en\\vo\\titre.mp3"
+    },
+    {
+      "id": "accueil",
+      "t": 5.288,
+      "vo": "C:\\Users\\felly\\rapporteur-mobile\\play-store\\visuels\\1.1.6\\en\\vo\\accueil.mp3"
+    },
+    {
+      "id": "facons",
+      "t": 12.302,
+      "vo": "C:\\Users\\felly\\rapporteur-mobile\\play-store\\visuels\\1.1.6\\en\\vo\\facons.mp3"
+    },
+    {
+      "id": "salle",
+      "t": 18.285,
+      "vo": "C:\\Users\\felly\\rapporteur-mobile\\play-store\\visuels\\1.1.6\\en\\vo\\salle.mp3"
+    },
+    {
+      "id": "document",
+      "t": 27.2,
+      "vo": "C:\\Users\\felly\\rapporteur-mobile\\play-store\\visuels\\1.1.6\\en\\vo\\document.mp3"
+    },
+    {
+      "id": "fin",
+      "t": 37.856,
+      "vo": "C:\\Users\\felly\\rapporteur-mobile\\play-store\\visuels\\1.1.6\\en\\vo\\fin.mp3"
+    }
+  ],
+  "fin": 44.639
+}

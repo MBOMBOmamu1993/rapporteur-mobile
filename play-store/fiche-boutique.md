@@ -11,13 +11,17 @@ Fiche du Play Store principale.
 - **Adresse de contact** : info@lerapporteur.com
 - **Politique de confidentialité** : https://lerapporteur.com/confidentialite
 
-## Description courte (80 car. max)
+## Description courte (80 car. max) — version 1.1.6 (21/09/2026)
 
-FR : `Enregistrez vos réunions, recevez un compte rendu rédigé par l'IA.`
+FR : `Vos réunions, déjà rédigées : enregistrez, le compte rendu arrive par courriel.`
 
-EN : `Record your meetings, get an AI-written meeting report in minutes.`
+EN : `Your meetings, already written: record, the report arrives by email.`
 
-## Description complète (4000 car. max)
+## Description complète (4000 car. max) — version 1.1.6
+
+Règle (retour d'Apple 2.3.10, appliquée ici par symétrie) : la fiche Google Play
+ne nomme AUCUNE autre plateforme — ni iPhone, ni App Store, ni Windows, ni Mac,
+ni « ordinateur ». Uniquement l'application Android.
 
 FR :
 
@@ -27,10 +31,18 @@ vous ayez à prendre une seule note.
 
 COMMENT ÇA MARCHE
 • Touchez le bouton micro au début de la réunion.
-• Rangez le téléphone : l'enregistrement continue écran éteint.
+• Posez le téléphone au centre de la table : l'enregistrement continue écran éteint.
 • Touchez « Terminer » : l'audio part automatiquement.
-• Quelques minutes plus tard, recevez un compte rendu structuré : participants,
-  points discutés, décisions, actions et responsables.
+• Quelques minutes plus tard, recevez un compte rendu structuré en Word :
+  participants, points discutés, décisions, actions et responsables.
+
+TROIS FAÇONS D'ENREGISTRER
+• En salle : la réunion se tient autour de vous, le micro capte toute la salle.
+• En ligne : collez le lien de la réunion (Meet, Teams, Zoom…), elle s'ouvre
+  dans Rapporteur et tout est capté — ou posez le téléphone près d'un autre
+  appareil à haut-parleur.
+• Relecture : rejouez l'enregistrement d'une réunion passée, il est rédigé
+  comme une séance en direct.
 
 FIDÈLE AUX FAITS
 Le compte rendu s'appuie uniquement sur ce qui a été dit. Pas d'invention,
@@ -38,21 +50,90 @@ pas d'approximation : les chiffres, les noms et les décisions sont restitués
 tels quels.
 
 PENSÉ POUR LE TERRAIN
-• Fonctionne en français et en anglais.
-• Reprend l'envoi automatiquement si le réseau coupe.
+• L'écran peut s'éteindre : l'enregistrement continue toute la séance.
+• Sans réseau, les réunions attendent sur le téléphone et partent toutes
+  seules quand la connexion revient.
 • Réunions longues acceptées (plusieurs heures).
-• Vos enregistrements sont transmis en toute sécurité (HTTPS) et traités sur
-  nos serveurs ; rien n'est partagé avec des tiers.
+• Un avertisseur vous prévient si plus rien n'est capté.
+• Interface en français, anglais, portugais et espagnol ; réunions tenues en
+  français, en anglais et dans plusieurs autres langues parlées.
+• Vos enregistrements sont transmis chiffrés et traités sur nos serveurs ;
+  ils sont supprimés après la rédaction.
 
 ESSAI GRATUIT
 Trois comptes rendus offerts à l'inscription, avec toutes les fonctionnalités.
-
-Rapporteur existe aussi sur Windows et directement au navigateur :
-https://lerapporteur.com
 ```
 
-EN : reprendre la version anglaise du site (`/en`), glossaire « meeting
-report » — ne jamais dire « minutes » seul.
+EN :
+
+```
+Rapporteur turns your meetings into professional meeting reports, without you
+taking a single note.
+
+HOW IT WORKS
+• Tap the microphone button when the meeting starts.
+• Set the phone down in the middle of the table: recording carries on with the
+  screen off.
+• Tap "Finish": the audio is sent automatically.
+• A few minutes later, receive a structured Word report: participants, points
+  discussed, decisions, actions and owners.
+
+THREE WAYS TO RECORD
+• In the room: the meeting is held around you, the microphone picks up the
+  whole room.
+• Online: paste the meeting link (Meet, Teams, Zoom…), it opens inside
+  Rapporteur and everything is captured — or set the phone next to another
+  device on speaker.
+• Playback: replay the recording of a past meeting, it is written up like a
+  live session.
+
+FAITHFUL TO THE FACTS
+The report relies only on what was said. Nothing invented, nothing
+approximated: figures, names and decisions are rendered as they were.
+
+BUILT FOR THE FIELD
+• The screen can turn off: recording carries on for the whole session.
+• Without network, meetings wait on the phone and send themselves when the
+  connection returns.
+• Long meetings accepted (several hours).
+• An alert warns you if nothing is being captured any more.
+• Interface in French, English, Portuguese and Spanish; meetings held in
+  French, English and several other spoken languages.
+• Your recordings travel encrypted and are processed on our servers; they are
+  deleted once the report is written.
+
+FREE TRIAL
+Three meeting reports on us when you sign up, every feature included.
+```
+
+## Notes de version 1.1.6 (500 car. max par langue)
+
+FR :
+
+```
+• Toutes les pages s'ouvrent hors connexion après une première ouverture en ligne ; les réunions attendent sur le téléphone et partent seules au retour du réseau.
+• Interface en français, anglais, portugais et espagnol.
+• Avertisseur de silence et rappel périodique pendant la séance.
+• Corrections issues des retours des testeurs : fin d'envoi sur téléphone, nombres restitués tels qu'entendus, en-tête sur une ligne.
+• Capture et sauvegardes durcies.
+```
+
+EN :
+
+```
+• Every page opens offline after a first online launch; meetings wait on the phone and send themselves when the network returns.
+• Interface in French, English, Portuguese and Spanish.
+• Silence alert with periodic reminder during the session.
+• Fixes from tester feedback: end-of-upload wording on phones, numbers rendered as heard, single-line header.
+• Hardened capture and backups.
+```
+
+## Visuels 1.1.6
+
+`play-store/visuels/1.1.6/{fr,en}/` — engendrés par `meetingrec-web/outils/demo/captures-play.mjs`
+(5 captures 1080 × 1920 + `presentation.png` 1024 × 500) et `apercu-play.mjs`
+(`video-play.mp4` 1080 × 1920, voix + musique, à téléverser sur YouTube non
+répertorié puis à lier dans la fiche).
 
 ## Éléments graphiques à fournir
 
