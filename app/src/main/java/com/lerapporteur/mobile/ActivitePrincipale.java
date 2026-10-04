@@ -540,10 +540,18 @@ public class ActivitePrincipale extends Activity {
         reglages.setMediaPlaybackRequiresUserGesture(false);
         reglages.setAllowFileAccess(false);
         reglages.setAllowContentAccess(false);
-        /* Même signature que la salle : les services de réunion servent leur
-           version web complète au Chrome du téléphone. */
-        reglages.setUserAgentString(reglages.getUserAgentString()
-                .replace("; wv", "").replaceFirst("Version/\\d+\\.\\d+ ", ""));
+        /* Signature d'ORDINATEUR, pas de téléphone : à un téléphone, Teams
+           (et Zoom) ne servent que « Télécharger l'application » — deux
+           boutons qui sortiraient la réunion de Rapporteur, donc du micro
+           partagé, et que ce panneau refuse : le client restait bloqué. À un
+           ordinateur, ils proposent « Continuer sur ce navigateur », et la
+           réunion se tient ici. Pincer pour agrandir reste possible. */
+        reglages.setUserAgentString(agentOrdinateur(reglages.getUserAgentString()));
+        reglages.setUseWideViewPort(true);
+        reglages.setLoadWithOverviewMode(true);
+        reglages.setSupportZoom(true);
+        reglages.setBuiltInZoomControls(true);
+        reglages.setDisplayZoomControls(false);
 
         reunion.setWebViewClient(new WebViewClient() {
             @Override
@@ -620,6 +628,16 @@ public class ActivitePrincipale extends Activity {
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
         colonne.addView(conteneurReunion, 0, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.5f));
+    }
+
+    /** L'agent que Chrome envoie depuis un ordinateur Windows, au numéro de
+     *  Chrome du WebView : « … Chrome/<majeur>.0.0.0 Safari/537.36 ». */
+    static String agentOrdinateur(String agentDuTelephone) {
+        java.util.regex.Matcher chrome = java.util.regex.Pattern.compile("Chrome/(\\d+)")
+                .matcher(agentDuTelephone == null ? "" : agentDuTelephone);
+        String majeur = chrome.find() ? chrome.group(1) : "131";
+        return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                + "(KHTML, like Gecko) Chrome/" + majeur + ".0.0.0 Safari/537.36";
     }
 
     /** Les capteurs que la page de réunion a demandés ET qu'Android nous a
