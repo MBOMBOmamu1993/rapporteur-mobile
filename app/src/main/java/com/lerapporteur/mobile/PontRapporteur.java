@@ -62,4 +62,11 @@ public class PontRapporteur {
     public void fermerReunion() {
         hote.fermerReunion();
     }
+
+    /** L'interprète vocal parle à l'oreille : Android baisse les autres
+     *  applications (YouTube, Teams…) le temps qu'il parle, puis les rend. */
+    @JavascriptInterface
+    public void autresSons(boolean baisser) {
+        hote.autresSons(baisser);
+    }
 }
