@@ -23,6 +23,9 @@ import android.app.Activity;
 import android.app.DownloadManager;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.media.AudioAttributes;
+import android.media.AudioFocusRequest;
+import android.media.AudioManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -529,6 +532,38 @@ public class ActivitePrincipale extends Activity {
                 reunion.loadUrl("about:blank");
                 conteneurReunion.setVisibility(View.GONE);
             } catch (Exception e) { /* même règle : la salle avant tout */ }
+        });
+    }
+
+    /**
+     * Demande de Felly (15/10/2026) : la voix de l'interprète devant la voix
+     * d'origine. Une page ne peut pas toucher au son d'une autre application ;
+     * Android, si : tant que l'application tient le focus audio « transitoire,
+     * les autres atténués », le système baisse de lui-même YouTube, la musique
+     * ou une vidéo, et les rend quand on le lâche.
+     */
+    private AudioFocusRequest focusInterprete;
+
+    void autresSons(boolean baisser) {
+        runOnUiThread(() -> {
+            try {
+                AudioManager audio = getSystemService(AudioManager.class);
+                if (audio == null) { return; }
+                if (baisser) {
+                    if (focusInterprete != null) { return; }
+                    focusInterprete = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
+                            .setAudioAttributes(new AudioAttributes.Builder()
+                                    .setUsage(AudioAttributes.USAGE_ASSISTANT)
+                                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                                    .build())
+                            .setOnAudioFocusChangeListener(changement -> { /* la page garde la main */ })
+                            .build();
+                    audio.requestAudioFocus(focusInterprete);
+                } else if (focusInterprete != null) {
+                    audio.abandonAudioFocusRequest(focusInterprete);
+                    focusInterprete = null;
+                }
+            } catch (Exception e) { /* l'interprète joue quand même */ }
         });
     }
 
