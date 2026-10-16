@@ -69,4 +69,18 @@ public class PontRapporteur {
     public void autresSons(boolean baisser) {
         hote.autresSons(baisser);
     }
+
+    /** Ce téléphone sait-il donner à l'interprète le son qu'il joue (Android 10+) ? */
+    @JavascriptInterface
+    public boolean sonDuTelephonePossible() {
+        return android.os.Build.VERSION.SDK_INT >= 29;
+    }
+
+    /** L'interprète écoute AUSSI le son que joue ce téléphone (YouTube, une
+     *  vidéo…) : le micro, lui, l'efface. Accord du client demandé par le
+     *  système ; la réponse revient à la page par window.rapporteurSonTelephone. */
+    @JavascriptInterface
+    public void sonDuTelephone(boolean capter) {
+        hote.sonDuTelephone(capter);
+    }
 }

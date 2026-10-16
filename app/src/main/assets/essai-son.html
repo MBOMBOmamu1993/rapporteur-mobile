@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Essai du son du téléphone</title>
+<style>
+body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+  background: #F0EEE6; color: #141413; font-family: system-ui, sans-serif; text-align: center; padding: 2rem; }
+b { font-size: 1.3rem; }
+</style>
+</head>
+<body>
+<main>
+  <p>Banc d'essai du son du téléphone — la même chaîne que l'interprète.</p>
+  <b id="etat">PRÉPARATION</b>
+</main>
+<script>
+/* Rejoue ce que fait l'interprète dans l'application : demande le son du
+   téléphone, le reçoit morceau par morceau (16 bits, 48 kHz, base 64), le
+   remet en piste par un contexte audio, et mesure ce qui en sort. Cinq
+   minutes, puis le verdict en clair — lisible par uiautomator. */
+(function () {
+  var etat = document.getElementById("etat");
+  var morceaux = 0, echantillons = 0, crete = 0, sortie = 0, arret = "";
+  var ctx = new AudioContext();
+  var dest = ctx.createMediaStreamDestination();
+  var analyse = ctx.createAnalyser();
+  analyse.fftSize = 2048;
+  ctx.createMediaStreamSource(dest.stream).connect(analyse);
+  var tampon = new Float32Array(analyse.fftSize);
+  var curseur = 0;
+  function montrer(prefixe) {
+    etat.textContent = prefixe + " morceaux=" + morceaux + " secondes=" + (echantillons / 48000).toFixed(1) +
+      " crete=" + crete.toFixed(3) + " sortie=" + sortie.toFixed(3) + (arret ? " arret=" + arret : "");
+  }
+  window.rapporteurSonTelephone = {
+    pret: function () { montrer("SON PRET"); },
+    arrete: function (raison) { arret = raison || "?"; montrer("SON ARRETE"); },
+    recevoir: function (morceau) {
+      var octets = atob(morceau);
+      var n = octets.length >> 1;
+      morceaux++; echantillons += n;
+      var maintenant = ctx.currentTime;
+      if (!n || curseur - maintenant > 0.6) { return; }
+      if (curseur < maintenant + 0.02) { curseur = maintenant + 0.12; }
+      var b = ctx.createBuffer(1, n, 48000);
+      var canal = b.getChannelData(0);
+      for (var i = 0; i < n; i++) {
+        var v = octets.charCodeAt(2 * i) | (octets.charCodeAt(2 * i + 1) << 8);
+        canal[i] = (v > 32767 ? v - 65536 : v) / 32768;
+        if (Math.abs(canal[i]) > crete) { crete = Math.abs(canal[i]); }
+      }
+      var lecture = ctx.createBufferSource();
+      lecture.buffer = b;
+      lecture.connect(dest);
+      lecture.start(curseur);
+      curseur += b.duration;
+    },
+  };
+  setInterval(function () {
+    analyse.getFloatTimeDomainData(tampon);
+    for (var i = 0; i < tampon.length; i++) { if (Math.abs(tampon[i]) > sortie) { sortie = Math.abs(tampon[i]); } }
+  }, 100);
+  setInterval(function () { if (!arret) { montrer("SON EN COURS"); } }, 1000);
+  setTimeout(function () {
+    ctx.resume();
+    try { window.rapporteurAndroid.sonDuTelephone(true); montrer("SON DEMANDE"); }
+    catch (e) { etat.textContent = "ECHEC pont " + e; }
+  }, 1500);
+  setTimeout(function () {
+    try { window.rapporteurAndroid.sonDuTelephone(false); } catch (e) { /* rien */ }
+    montrer(crete > 0.01 && sortie > 0.01 ? "SON OK" : "SON MUET");
+    arret = arret || "fin";
+  }, 300000);
+})();
+</script>
+</body>
+</html>
