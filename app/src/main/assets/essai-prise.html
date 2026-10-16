@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Essai de la prise de la réunion</title>
+<style>
+body { margin: 0; padding: 1rem; background: #F0EEE6; color: #141413; font-family: system-ui, sans-serif; }
+b { white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<p>Banc de la prise du son de la réunion — la salle demande le son du panneau, comme l'interprète.</p>
+<b id="etat">ATTENTE</b>
+<script>
+/* Reçoit le son des correspondants que la prise du panneau envoie (16 bits,
+   base 64, taux donné), en mesure la crête, puis le lâche : le verdict reste
+   écrit, lisible par uiautomator. */
+(function () {
+  var etat = document.getElementById("etat");
+  var morceaux = 0, crete = 0, taux = 0, arrets = 0, demande = false, possible = null, fini = "";
+  window.rapporteurSonReunion = {
+    recevoir: function (b64, t) {
+      morceaux++; taux = t;
+      var o = atob(b64);
+      for (var i = 0; i + 1 < o.length; i += 2) {
+        var v = o.charCodeAt(i) | (o.charCodeAt(i + 1) << 8);
+        v = (v > 32767 ? v - 65536 : v) / 32768;
+        if (Math.abs(v) > crete) { crete = Math.abs(v); }
+      }
+    },
+    arrete: function () { arrets++; },
+  };
+  function montrer() {
+    etat.textContent = "PRISE possible=" + possible + " demande=" + demande + " morceaux=" + morceaux +
+      " taux=" + taux + " crete=" + crete.toFixed(3) + " arrets=" + arrets + (fini ? " " + fini : "");
+  }
+  setInterval(montrer, 500);
+  /* « longue » : une vraie réunion, qu'on rejoint à la main — la salle demande le son dès
+     que le panneau le permet, et ne le lâche pas. */
+  if (location.hash === "#longue") {
+    var demander = setInterval(function () {
+      possible = window.rapporteurAndroid.sonReunionPossible();
+      if (possible && !demande) { window.rapporteurAndroid.sonReunion(true, 0.15); demande = true; }
+    }, 2000);
+    return;
+  }
+  setTimeout(function () {
+    possible = window.rapporteurAndroid.sonReunionPossible();
+    if (possible) { window.rapporteurAndroid.sonReunion(true, 0.15); demande = true; }
+  }, 6000);
+  setTimeout(function () {
+    window.rapporteurAndroid.sonReunion(false, 1);
+    var avant = morceaux;
+    setTimeout(function () { fini = (morceaux - avant <= 2 ? "LACHEE" : "TOUJOURS") + (crete > 0.05 ? " SON_OK" : " MUET"); }, 1500);
+  }, 18000);
+})();
+</script>
+</body>
+</html>

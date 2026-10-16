@@ -83,4 +83,18 @@ public class PontRapporteur {
     public void sonDuTelephone(boolean capter) {
         hote.sonDuTelephone(capter);
     }
+
+    /** La réunion ouverte dans le panneau peut-elle donner son son à l'interprète ? */
+    @JavascriptInterface
+    public boolean sonReunionPossible() {
+        return hote.sonReunionPossible();
+    }
+
+    /** L'interprète écoute la réunion du panneau à la source (la voix des
+     *  correspondants, jamais le micro) ; niveau = celui de la réunion dans le
+     *  panneau pendant ce temps. La réponse arrive par window.rapporteurSonReunion. */
+    @JavascriptInterface
+    public void sonReunion(boolean capter, double niveau) {
+        hote.sonReunion(capter, niveau);
+    }
 }

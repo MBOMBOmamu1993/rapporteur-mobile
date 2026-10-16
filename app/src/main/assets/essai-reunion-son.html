@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Réunion d'essai</title>
+<style>
+body { margin: 0; padding: 1rem; background: #1F1E1D; color: #F0EEE6; font-family: system-ui, sans-serif; }
+b { white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<p>Réunion d'essai : un correspondant parle (une tonalité hachée), reçu par WebRTC et joué par un élément audio, comme dans Meet.</p>
+<b id="etat">CONNEXION</b>
+<script>
+/* Le banc de la prise du son de la réunion : deux liaisons bouclées dans la page
+   tiennent lieu de serveur de réunion ; le flux REÇU est confié à un élément
+   audio après un temps, comme quand on rejoint une réunion. */
+(async function () {
+  var etat = document.getElementById("etat");
+  var source = new AudioContext();
+  var osc = source.createOscillator(); osc.frequency.value = 440;
+  var hache = source.createGain(); hache.gain.value = 0.4;
+  var lfo = source.createOscillator(); lfo.frequency.value = 2;
+  var lfoGain = source.createGain(); lfoGain.gain.value = 0.3;
+  lfo.connect(lfoGain).connect(hache.gain);
+  var dest = source.createMediaStreamDestination();
+  osc.connect(hache).connect(dest); osc.start(); lfo.start();
+  var pc1 = new RTCPeerConnection(), pc2 = new RTCPeerConnection();
+  pc1.onicecandidate = function (e) { if (e.candidate) { pc2.addIceCandidate(e.candidate); } };
+  pc2.onicecandidate = function (e) { if (e.candidate) { pc1.addIceCandidate(e.candidate); } };
+  pc1.addTrack(dest.stream.getAudioTracks()[0], dest.stream);
+  var recu = new Promise(function (fin) { pc2.ontrack = function (e) { fin(e.streams[0] || new MediaStream([e.track])); }; });
+  var offre = await pc1.createOffer(); await pc1.setLocalDescription(offre); await pc2.setRemoteDescription(offre);
+  var reponse = await pc2.createAnswer(); await pc2.setLocalDescription(reponse); await pc1.setRemoteDescription(reponse);
+  var flux = await recu;
+  setTimeout(function () {
+    var audio = document.createElement("audio");
+    audio.autoplay = true;
+    document.body.appendChild(audio);
+    audio.srcObject = flux;
+    audio.play().catch(function () {});
+    window.__audio = audio;
+  }, 1500);
+  setInterval(function () {
+    var prise = window.__rapporteurPrise ? window.__rapporteurPrise.etat() : "pas de prise";
+    var vol = window.__audio ? window.__audio.volume : "-";
+    etat.textContent = "REUNION prise=" + prise + " volume=" + vol;
+  }, 500);
+})();
+</script>
+</body>
+</html>

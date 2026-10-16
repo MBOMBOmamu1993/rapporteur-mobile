@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Essai de la voix de l'interprète</title>
+<style>
+body { margin: 0; padding: 1rem; background: #F0EEE6; color: #141413; font-family: system-ui, sans-serif; }
+b { white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<p>Banc de la voix de l'interprète — le chemin de la salle, dans l'ordre de la salle : contexte de la voix
+éveillé d'abord, son du téléphone accordé, puis la voix reçue par WebRTC (tonalité de 300 Hz).</p>
+<b id="etat">PRÉPARATION</b>
+<script>
+/* Variantes (#a,b,…) : « directe » joue la voix par l'élément audio au lieu du
+   contexte amplifié ; « baisser » demande la baisse des autres sons ;
+   « telephone » demande le son du téléphone avant la voix (fenêtre d'Android). */
+(function () {
+  var etat = document.getElementById("etat");
+  var variante = (location.hash || "#").slice(1).split(",");
+  function a(o) { return variante.indexOf(o) >= 0; }
+  var journal = [];
+  function noter(l) { journal.push(l); etat.textContent = journal.slice(-12).join("\n"); }
+  window.__essai = { niveau: 0, morceaux: 0 };
+
+  var pret = null;
+  /* La salle réelle éveille le contexte de la voix au toucher, AVANT la fenêtre d'Android. */
+  window.rapporteurSonTelephone = {
+    pret: function () { noter("son du téléphone : PRÊT"); if (pret) { pret(true); } },
+    arrete: function (r) { noter("son du téléphone : ARRÊTÉ " + r); if (pret) { pret(false); } },
+    recevoir: function (b64) {
+      window.__essai.morceaux++;
+      var o = atob(b64), n = o.length >> 1, s = 0;
+      for (var i = 0; i < n; i++) { var v = o.charCodeAt(2 * i) | (o.charCodeAt(2 * i + 1) << 8); v = (v > 32767 ? v - 65536 : v) / 32768; s += v * v; }
+      var rms = Math.sqrt(s / Math.max(1, n));
+      window.__essai.capte = Math.max(window.__essai.capte || 0, rms);
+      if (window.__essai.depuisVoix && Date.now() > window.__essai.depuisVoix + 1500) { window.__essai.capteApres = Math.max(window.__essai.capteApres || 0, rms); }
+    },
+  };
+
+  async function voixDistante() {
+    var source = new AudioContext();
+    var osc = source.createOscillator(); osc.frequency.value = 300;
+    var hache = source.createGain(); hache.gain.value = 0.25;
+    var dest = source.createMediaStreamDestination();
+    osc.connect(hache).connect(dest); osc.start();
+    var pc1 = new RTCPeerConnection(), pc2 = new RTCPeerConnection();
+    pc1.onicecandidate = function (e) { if (e.candidate) { pc2.addIceCandidate(e.candidate); } };
+    pc2.onicecandidate = function (e) { if (e.candidate) { pc1.addIceCandidate(e.candidate); } };
+    pc1.addTrack(dest.stream.getAudioTracks()[0], dest.stream);
+    var recu = new Promise(function (fin) { pc2.ontrack = function (e) { fin(e.streams[0] || new MediaStream([e.track])); }; });
+    var o = await pc1.createOffer(); await pc1.setLocalDescription(o); await pc2.setRemoteDescription(o);
+    var r = await pc2.createAnswer(); await pc2.setLocalDescription(r); await pc1.setRemoteDescription(r);
+    window.__essai.pcs = [pc1, pc2, source];
+    return recu;
+  }
+
+  async function lancer() {
+    noter("variante : " + variante.join(","));
+    var contexteVoix = new AudioContext({ latencyHint: "playback" });
+    await contexteVoix.resume().catch(function () {});
+    window.__essai.contexteVoix = contexteVoix;
+    noter("contexte de la voix : " + contexteVoix.state);
+    if (a("telephone")) {
+      var accorde = await new Promise(function (fin) { pret = fin; window.rapporteurAndroid.sonDuTelephone(true); });
+      noter("son du téléphone accordé : " + accorde + " ; contexte : " + contexteVoix.state);
+    }
+    if (a("apres")) {
+      contexteVoix = new AudioContext({ latencyHint: "playback" });
+      await contexteVoix.resume().catch(function () {});
+      window.__essai.contexteVoix = contexteVoix;
+      noter("contexte NEUF, ouvert après la capture : " + contexteVoix.state);
+    }
+    var flux = await voixDistante();
+    var simple = new Audio();
+    simple.srcObject = flux;
+    window.__essai.simple = simple;
+    if (a("directe")) {
+      simple.muted = false;
+      await simple.play().catch(function (e) { noter("lecture refusée " + e); });
+      noter("voix DIRECTE (élément audio)");
+    } else {
+      simple.muted = true;
+      simple.play().catch(function () {});
+      await contexteVoix.resume().catch(function () {});
+      var comp = contexteVoix.createDynamicsCompressor();
+      comp.threshold.value = -30; comp.knee.value = 12; comp.ratio.value = 6; comp.attack.value = 0.003; comp.release.value = 0.25;
+      var gain = contexteVoix.createGain(); gain.gain.value = 2.5;
+      contexteVoix.createMediaStreamSource(flux).connect(comp).connect(gain).connect(contexteVoix.destination);
+      window.__essai.depuisVoix = Date.now();
+      var analyse = contexteVoix.createAnalyser(); gain.connect(analyse);
+      var t = new Float32Array(1024);
+      setInterval(function () { analyse.getFloatTimeDomainData(t); var c = 0; for (var i = 0; i < t.length; i++) { c = Math.max(c, Math.abs(t[i])); } window.__essai.niveau = c; }, 300);
+      noter("voix AMPLIFIÉE, contexte " + contexteVoix.state);
+    }
+    if (a("baisser")) { try { window.rapporteurAndroid.autresSons(true); noter("autres sons baissés"); } catch (e) { noter("autresSons " + e); } }
+    setInterval(function () {
+      document.title = "niveau=" + window.__essai.niveau.toFixed(3) + " ctx=" + contexteVoix.state + " morceaux=" + window.__essai.morceaux +
+        " capte=" + (window.__essai.capte || 0).toFixed(4) + " capteApresVoix=" + (window.__essai.capteApres || 0).toFixed(4);
+    }, 500);
+    noter("EN COURS");
+  }
+  setTimeout(function () { lancer().catch(function (e) { noter("ÉCHEC " + e); }); }, 1500);
+})();
+</script>
+</body>
+</html>
