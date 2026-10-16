@@ -36,6 +36,15 @@ b { white-space: pre-wrap; }
       " taux=" + taux + " crete=" + crete.toFixed(3) + " arrets=" + arrets + (fini ? " " + fini : "");
   }
   setInterval(montrer, 500);
+  /* « longue » : une vraie réunion, qu'on rejoint à la main — la salle demande le son dès
+     que le panneau le permet, et ne le lâche pas. */
+  if (location.hash === "#longue") {
+    var demander = setInterval(function () {
+      possible = window.rapporteurAndroid.sonReunionPossible();
+      if (possible && !demande) { window.rapporteurAndroid.sonReunion(true, 0.15); demande = true; }
+    }, 2000);
+    return;
+  }
   setTimeout(function () {
     possible = window.rapporteurAndroid.sonReunionPossible();
     if (possible) { window.rapporteurAndroid.sonReunion(true, 0.15); demande = true; }

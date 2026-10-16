@@ -426,6 +426,22 @@ public class ActivitePrincipale extends Activity {
             }
             /* La prise du son de la réunion : la salle d'essai en bas, une réunion
                d'essai (WebRTC bouclé, joué par un élément audio) dans le panneau. */
+            /* La voix de l'interprète, dans l'ordre de la salle : `--es essai_voix telephone,baisser`
+               (variantes séparées par des virgules, voir la page). */
+            String varianteVoix = getIntent().getStringExtra("essai_voix");
+            /* « inclure » : la capture garde AUSSI le son de Rapporteur — la voix
+               d'essai s'y mesure (débogage seulement). */
+            essaiInclureAppli = varianteVoix != null && varianteVoix.contains("inclure");
+            if (varianteVoix != null) {
+                toile.loadUrl("file:///android_asset/essai-voix.html#" + Uri.encode(varianteVoix, ","));
+            }
+            /* La prise sur une VRAIE réunion (Teams, Meet…) : la salle d'essai écoute
+               sans fin, le panneau ouvre le lien donné. */
+            String essaiPriseUrl = getIntent().getStringExtra("essai_prise_url");
+            if (essaiPriseUrl != null) {
+                toile.loadUrl("file:///android_asset/essai-prise.html#longue");
+                toile.postDelayed(() -> ouvrirReunion(essaiPriseUrl), 3000);
+            }
             if (getIntent().hasExtra("essai_prise")) {
                 toile.loadUrl("file:///android_asset/essai-prise.html");
                 toile.postDelayed(() -> ouvrirReunion("file:///android_asset/essai-reunion-son.html"), 3000);
@@ -598,6 +614,8 @@ public class ActivitePrincipale extends Activity {
      * le demande. Ce que la page envoie est vérifié avant d'entrer dans la
      * salle : du base 64, de taille bornée, d'un service de réunion connu.
      */
+    /** Banc de la voix (débogage) : la capture du son du téléphone garde celui de Rapporteur. */
+    private boolean essaiInclureAppli;
     private volatile boolean panneauOuvert;
     private volatile String urlReunion;
     private volatile boolean priseReunion;
@@ -1042,7 +1060,8 @@ public class ActivitePrincipale extends Activity {
                 try {
                     startForegroundService(new Intent(this, ServiceSonTelephone.class)
                             .putExtra(ServiceSonTelephone.RESULTAT, resultat)
-                            .putExtra(ServiceSonTelephone.DONNEES, donnees));
+                            .putExtra(ServiceSonTelephone.DONNEES, donnees)
+                            .putExtra(ServiceSonTelephone.ESSAI_INCLURE_APPLI, essaiInclureAppli));
                 } catch (Exception e) {
                     direSonTelephone("arrete", "'service'");
                 }

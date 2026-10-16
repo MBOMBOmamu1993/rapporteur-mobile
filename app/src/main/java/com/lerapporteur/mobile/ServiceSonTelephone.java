@@ -47,6 +47,8 @@ public class ServiceSonTelephone extends Service {
 
     static final String RESULTAT = "resultat";
     static final String DONNEES = "donnees";
+    /** Banc de la voix, débogage seulement : garder le son de Rapporteur dans la capture. */
+    static final String ESSAI_INCLURE_APPLI = "essai_inclure_appli";
     /** 48 kHz, la cadence du mélangeur d'Android : aucune conversion en route. */
     private static final int TAUX = 48000;
     /** Un morceau toutes les 50 ms : assez fin pour la voix, léger pour la page. */
@@ -120,12 +122,14 @@ public class ServiceSonTelephone extends Service {
             };
             projection.registerCallback(rappel, new Handler(Looper.getMainLooper()));
 
-            AudioPlaybackCaptureConfiguration choix = new AudioPlaybackCaptureConfiguration.Builder(projection)
+            AudioPlaybackCaptureConfiguration.Builder regle = new AudioPlaybackCaptureConfiguration.Builder(projection)
                     .addMatchingUsage(AudioAttributes.USAGE_MEDIA)
                     .addMatchingUsage(AudioAttributes.USAGE_GAME)
-                    .addMatchingUsage(AudioAttributes.USAGE_UNKNOWN)
-                    .excludeUid(android.os.Process.myUid())
-                    .build();
+                    .addMatchingUsage(AudioAttributes.USAGE_UNKNOWN);
+            if (!(BuildConfig.DEBUG && intention.getBooleanExtra(ESSAI_INCLURE_APPLI, false))) {
+                regle.excludeUid(android.os.Process.myUid());
+            }
+            AudioPlaybackCaptureConfiguration choix = regle.build();
             AudioFormat format = new AudioFormat.Builder()
                     .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
                     .setSampleRate(TAUX)
