@@ -424,6 +424,12 @@ public class ActivitePrincipale extends Activity {
             if (getIntent().hasExtra("essai_son")) {
                 toile.loadUrl("file:///android_asset/essai-son.html");
             }
+            /* La prise du son de la réunion : la salle d'essai en bas, une réunion
+               d'essai (WebRTC bouclé, joué par un élément audio) dans le panneau. */
+            if (getIntent().hasExtra("essai_prise")) {
+                toile.loadUrl("file:///android_asset/essai-prise.html");
+                toile.postDelayed(() -> ouvrirReunion("file:///android_asset/essai-reunion-son.html"), 3000);
+            }
             /* Le volume d'appel de l'interprète : l'émulateur n'a pas d'annulation
                d'écho matérielle, donc jamais de mode « appel » venu du WebView — on
                le pose ici comme lui, puis on suit le volume (traces D/Rapporteur).
@@ -550,11 +556,13 @@ public class ActivitePrincipale extends Activity {
     void ouvrirReunion(String brut) {
         runOnUiThread(() -> {
             try {
-                if (!pageDeChezNous(toile.getUrl())) { return; }
+                if (!pageAutorisee(toile.getUrl())) { return; }
                 Uri lien = Uri.parse(brut == null ? "" : brut.trim());
-                if (!"https".equals(lien.getScheme())) { return; }
+                boolean essai = BuildConfig.DEBUG && lien.toString().startsWith("file:///android_asset/");
+                if (!"https".equals(lien.getScheme()) && !essai) { return; }
                 if (reunion == null) { creerPanneauReunion(); }
                 conteneurReunion.setVisibility(View.VISIBLE);
+                panneauOuvert = true;
                 reunion.loadUrl(lien.toString());
             } catch (Exception e) {
                 /* Quoi qu'il arrive, le panneau ne doit jamais emporter la
@@ -567,10 +575,105 @@ public class ActivitePrincipale extends Activity {
         runOnUiThread(() -> {
             try {
                 if (reunion == null) { return; }
+                panneauOuvert = false;
+                urlReunion = null;
+                if (priseReunion) {
+                    priseReunion = false;
+                    direSonReunion("arrete", "");
+                }
                 reunion.loadUrl("about:blank");
                 conteneurReunion.setVisibility(View.GONE);
             } catch (Exception e) { /* même règle : la salle avant tout */ }
         });
+    }
+
+    /*
+     * Le son de la réunion ouverte dans le panneau, pour l'interprète (demande
+     * de Felly, 16/10/2026 : « donner la voix à l'interprète » quand le lien de
+     * la réunion est ouvert dans Rapporteur). La réunion est un son d'appel :
+     * Android ne le laisse capter par aucune application, et par le micro
+     * l'interprète se serait entendu lui-même. La prise (assets/prise-reunion.js),
+     * posée dans la page de réunion, rend le son des CORRESPONDANTS — les flux
+     * qu'elle reçoit —, jamais le micro du client, et seulement quand la salle
+     * le demande. Ce que la page envoie est vérifié avant d'entrer dans la
+     * salle : du base 64, de taille bornée, d'un service de réunion connu.
+     */
+    private volatile boolean panneauOuvert;
+    private volatile String urlReunion;
+    private volatile boolean priseReunion;
+    private volatile double niveauReunion = 1;
+    private String scriptPrise;
+    private static final java.util.regex.Pattern BASE64 = java.util.regex.Pattern.compile("^[A-Za-z0-9+/]+={0,2}$");
+
+    /** Une page du panneau à qui l'on prend le son : un service de réunion en
+     *  HTTPS (banc d'essai : les assets, en débogage seulement). */
+    private static boolean reunionDeConfiance(String adresse) {
+        if (adresse == null) { return false; }
+        if (BuildConfig.DEBUG && adresse.startsWith("file:///android_asset/")) { return true; }
+        try {
+            Uri u = Uri.parse(adresse);
+            return "https".equals(u.getScheme()) && hoteDeReunion(u.getHost());
+        } catch (Exception e) { return false; }
+    }
+
+    /** La salle peut-elle demander le son de la réunion (panneau ouvert sur un service connu) ? */
+    boolean sonReunionPossible() {
+        return panneauOuvert && reunionDeConfiance(urlReunion);
+    }
+
+    /** La salle demande (ou lâche) le son de la réunion ; niveau = celui de la
+     *  réunion dans le panneau pendant ce temps (1 à l'arrêt). */
+    void sonReunion(boolean capter, double niveau) {
+        runOnUiThread(() -> {
+            if (!pageAutorisee(toile.getUrl())) { return; }
+            priseReunion = capter && sonReunionPossible();
+            niveauReunion = Math.max(0, Math.min(1, niveau));
+            commanderPrise();
+        });
+    }
+
+    private void commanderPrise() {
+        if (reunion == null) { return; }
+        reunion.evaluateJavascript("window.__rapporteurPrise&&window.__rapporteurPrise.capter("
+                + priseReunion + "," + (priseReunion ? niveauReunion : 1) + ")", null);
+    }
+
+    private void poserPrise(WebView vue, String adresse) {
+        urlReunion = adresse;
+        if (!reunionDeConfiance(adresse)) { return; }
+        try {
+            if (scriptPrise == null) {
+                try (java.io.InputStream entree = getAssets().open("prise-reunion.js")) {
+                    java.io.ByteArrayOutputStream lu = new java.io.ByteArrayOutputStream();
+                    byte[] tampon = new byte[8192];
+                    for (int n; (n = entree.read(tampon)) > 0; ) { lu.write(tampon, 0, n); }
+                    scriptPrise = new String(lu.toByteArray(), java.nio.charset.StandardCharsets.UTF_8);
+                }
+            }
+            vue.evaluateJavascript(scriptPrise, null);
+            if (priseReunion) { commanderPrise(); }
+        } catch (Exception e) { /* sans prise, l'interprète garde ses sous-titres */ }
+    }
+
+    /** window.rapporteurSonReunion.<fonction>(<argument>), sur le fil de la salle. */
+    private void direSonReunion(String fonction, String argument) {
+        toile.post(() -> {
+            if (isDestroyed() || !pageAutorisee(toile.getUrl())) { return; }
+            toile.evaluateJavascript("window.rapporteurSonReunion&&window.rapporteurSonReunion."
+                    + fonction + "(" + argument + ")", null);
+        });
+    }
+
+    /** Le seul pont du panneau : la page de réunion ne peut que DONNER le son
+     *  de ses correspondants, et seulement quand la salle l'a demandé. */
+    private final class PontReunion {
+        @android.webkit.JavascriptInterface
+        public void son(String morceau, int taux) {
+            if (!priseReunion || morceau == null || morceau.isEmpty() || morceau.length() > 65536) { return; }
+            if (taux < 8000 || taux > 96000 || !reunionDeConfiance(urlReunion)) { return; }
+            if (!BASE64.matcher(morceau).matches()) { return; }
+            direSonReunion("recevoir", "'" + morceau + "'," + taux);
+        }
     }
 
     /**
@@ -767,7 +870,20 @@ public class ActivitePrincipale extends Activity {
         reglages.setBuiltInZoomControls(true);
         reglages.setDisplayZoomControls(false);
 
+        reunion.addJavascriptInterface(new PontReunion(), "rapporteurReunion");
         reunion.setWebViewClient(new WebViewClient() {
+            /* La prise du son, posée dès le début de chaque page puis de nouveau à
+               la fin : inerte tant que la salle ne la demande pas. */
+            @Override
+            public void onPageStarted(WebView vue, String url, android.graphics.Bitmap favicon) {
+                poserPrise(vue, url);
+            }
+
+            @Override
+            public void onPageFinished(WebView vue, String url) {
+                poserPrise(vue, url);
+            }
+
             @Override
             public boolean shouldOverrideUrlLoading(WebView vue, WebResourceRequest requete) {
                 Uri url = requete.getUrl();
