@@ -424,6 +424,40 @@ public class ActivitePrincipale extends Activity {
             if (getIntent().hasExtra("essai_son")) {
                 toile.loadUrl("file:///android_asset/essai-son.html");
             }
+            /* Le volume d'appel de l'interprète : l'émulateur n'a pas d'annulation
+               d'écho matérielle, donc jamais de mode « appel » venu du WebView — on
+               le pose ici comme lui, puis on suit le volume (traces D/Rapporteur).
+               `--ez essai_volume_appel true` : mode posé avant l'interprète ;
+               `--ez essai_volume_appel_apres true` : mode posé après lui. */
+            boolean volumeAvant = getIntent().hasExtra("essai_volume_appel");
+            if (Build.VERSION.SDK_INT >= 31 && (volumeAvant || getIntent().hasExtra("essai_volume_appel_apres"))) {
+                AudioManager audio = getSystemService(AudioManager.class);
+                Runnable modeAppel = () -> {
+                    audio.setMode(AudioManager.MODE_IN_COMMUNICATION);
+                    for (android.media.AudioDeviceInfo d : audio.getAvailableCommunicationDevices()) {
+                        if (d.getType() == android.media.AudioDeviceInfo.TYPE_BUILTIN_SPEAKER) { audio.setCommunicationDevice(d); }
+                    }
+                };
+                java.util.function.Consumer<String> trace = (quand) -> android.util.Log.d("Rapporteur",
+                        "volume d'appel " + quand + " : " + audio.getStreamVolume(AudioManager.STREAM_VOICE_CALL)
+                        + "/" + audio.getStreamMaxVolume(AudioManager.STREAM_VOICE_CALL) + ", mode " + audio.getMode());
+                if (volumeAvant) { modeAppel.run(); }
+                audio.setStreamVolume(AudioManager.STREAM_VOICE_CALL, 1, 0);
+                trace.accept("au départ");
+                autresSons(true);
+                toile.postDelayed(() -> {
+                    if (!volumeAvant) { modeAppel.run(); }
+                    toile.postDelayed(() -> {
+                        trace.accept("pendant l'interprète");
+                        autresSons(false);
+                        toile.postDelayed(() -> {
+                            trace.accept("après l'interprète");
+                            audio.clearCommunicationDevice();
+                            audio.setMode(AudioManager.MODE_NORMAL);
+                        }, 1000);
+                    }, 1500);
+                }, 1500);
+            }
         }
     }
 
@@ -548,13 +582,15 @@ public class ActivitePrincipale extends Activity {
      */
     private AudioFocusRequest focusInterprete;
 
-    void autresSons(boolean baisser) {
-        runOnUiThread(() -> {
-            try {
-                AudioManager audio = getSystemService(AudioManager.class);
-                if (audio == null) { return; }
-                if (baisser) {
-                    if (focusInterprete != null) { return; }
+    /** Fait sur le fil du pont, AVANT de rendre la main à la page : quand elle lâche
+     *  l'interprète puis ferme son micro, le volume d'appel est déjà rendu au
+     *  haut-parleur (voir rendreVolumeAppel). */
+    synchronized void autresSons(boolean baisser) {
+        try {
+            AudioManager audio = getSystemService(AudioManager.class);
+            if (audio == null) { return; }
+            if (baisser) {
+                if (focusInterprete == null) {
                     focusInterprete = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
                             .setAudioAttributes(new AudioAttributes.Builder()
                                     .setUsage(AudioAttributes.USAGE_ASSISTANT)
@@ -563,12 +599,89 @@ public class ActivitePrincipale extends Activity {
                             .setOnAudioFocusChangeListener(changement -> { /* la page garde la main */ })
                             .build();
                     audio.requestAudioFocus(focusInterprete);
-                } else if (focusInterprete != null) {
+                }
+                suivreModeAppel(audio, true);
+                monterVolumeAppel(audio);
+            } else {
+                suivreModeAppel(audio, false);
+                rendreVolumeAppel(audio);
+                if (focusInterprete != null) {
                     audio.abandonAudioFocusRequest(focusInterprete);
                     focusInterprete = null;
                 }
-            } catch (Exception e) { /* l'interprète joue quand même */ }
-        });
+            }
+        } catch (Exception e) { /* l'interprète joue quand même */ }
+    }
+
+    /*
+     * Essai de Felly (16/10/2026) : « augmenter le volume » quand l'interprète
+     * écoute par le micro — une réunion sur un autre téléphone posé à côté, ou
+     * la salle. La page ouvre alors son micro avec l'annulation d'écho, et le
+     * WebView met le téléphone en mode « appel » : la voix de l'interprète suit
+     * le VOLUME D'APPEL, souvent bas (et à zéro, le WebView coupe tout son). Tant
+     * que l'interprète parle à voix haute (pas pendant un enregistrement : la page
+     * ne le demande pas), ce volume monte au plus haut, au haut-parleur
+     * seulement — écouteurs et casque gardent le leur —, puis revient tel
+     * qu'avant, sauf si le client l'a réglé lui-même entre-temps. Android 12 et
+     * suivants : l'appareil d'appel s'y lit sans erreur possible.
+     */
+    private int volumeAppelAvant = -1;
+    private int volumeAppelPose = -1;
+    private AudioManager.OnModeChangedListener ecouteModeAppel;
+
+    private void monterVolumeAppel(AudioManager audio) {
+        if (Build.VERSION.SDK_INT < 31) { return; }
+        try {
+            if (volumeAppelAvant >= 0 || audio.getMode() != AudioManager.MODE_IN_COMMUNICATION || !auHautParleur(audio)) { return; }
+            int plus = audio.getStreamMaxVolume(AudioManager.STREAM_VOICE_CALL);
+            int avant = audio.getStreamVolume(AudioManager.STREAM_VOICE_CALL);
+            if (avant >= plus) { return; }
+            audio.setStreamVolume(AudioManager.STREAM_VOICE_CALL, plus, 0);
+            volumeAppelAvant = avant;
+            volumeAppelPose = audio.getStreamVolume(AudioManager.STREAM_VOICE_CALL);
+        } catch (Exception e) { /* le volume reste celui du client */ }
+    }
+
+    private void rendreVolumeAppel(AudioManager audio) {
+        if (volumeAppelAvant < 0) { return; }
+        try {
+            /* Le volume se garde PAR APPAREIL : il se rend sur le haut-parleur qui
+               l'a reçu, tant qu'il est l'appareil d'appel — sinon (écouteurs pris
+               en route, mode « appel » déjà fini) on attend qu'il le redevienne. */
+            if (!auHautParleur(audio)) { return; }
+            if (audio.getStreamVolume(AudioManager.STREAM_VOICE_CALL) == volumeAppelPose) {
+                audio.setStreamVolume(AudioManager.STREAM_VOICE_CALL, volumeAppelAvant, 0);
+            }
+            volumeAppelAvant = -1;
+        } catch (Exception e) { /* rien à rendre */ }
+    }
+
+    /** Le son d'appel sort-il du haut-parleur du téléphone (ni écouteurs, ni casque) ? */
+    private static boolean auHautParleur(AudioManager audio) {
+        if (Build.VERSION.SDK_INT >= 31) {
+            android.media.AudioDeviceInfo appareil = audio.getCommunicationDevice();
+            return appareil != null && appareil.getType() == android.media.AudioDeviceInfo.TYPE_BUILTIN_SPEAKER;
+        }
+        return audio.isSpeakerphoneOn();
+    }
+
+    /** Le mode « appel » peut venir après (le micro s'ouvre une fois le partage
+     *  du son arrêté) ou partir avant : on le suit tant que l'interprète parle. */
+    private void suivreModeAppel(AudioManager audio, boolean suivre) {
+        if (Build.VERSION.SDK_INT < 31) { return; }
+        if (suivre && ecouteModeAppel == null) {
+            ecouteModeAppel = mode -> {
+                synchronized (ActivitePrincipale.this) {
+                    AudioManager a = getSystemService(AudioManager.class);
+                    if (a == null || focusInterprete == null) { return; }
+                    if (mode == AudioManager.MODE_IN_COMMUNICATION) { monterVolumeAppel(a); } else { rendreVolumeAppel(a); }
+                }
+            };
+            audio.addOnModeChangedListener(getMainExecutor(), ecouteModeAppel);
+        } else if (!suivre && ecouteModeAppel != null) {
+            audio.removeOnModeChangedListener(ecouteModeAppel);
+            ecouteModeAppel = null;
+        }
     }
 
     /**
@@ -875,6 +988,9 @@ public class ActivitePrincipale extends Activity {
         /* Le son du téléphone n'a plus de page à qui parler. */
         ServiceSonTelephone.recepteur = null;
         stopService(new Intent(this, ServiceSonTelephone.class));
+        /* L'interprète se tait avec la page (son micro est encore ouvert ici) :
+           volume d'appel et autres sons rendus. */
+        autresSons(false);
         if (reunion != null) { reunion.destroy(); }
         toile.destroy();
         super.onDestroy();
