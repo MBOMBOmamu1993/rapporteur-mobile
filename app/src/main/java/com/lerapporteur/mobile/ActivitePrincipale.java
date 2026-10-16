@@ -51,6 +51,7 @@ public class ActivitePrincipale extends Activity {
     private static final int DEMANDE_MICRO = 1;
     private static final int DEMANDE_REUNION = 2;
     private static final int CHOIX_FICHIERS = 3;
+    private static final int SON_TELEPHONE = 4;
 
     private WebView toile;
     /* La réunion en ligne tenue SUR CE téléphone : Android interdit à deux
@@ -420,6 +421,9 @@ public class ActivitePrincipale extends Activity {
             if (getIntent().hasExtra("essai_fichier")) {
                 toile.loadUrl("file:///android_asset/essai-fichier.html");
             }
+            if (getIntent().hasExtra("essai_son")) {
+                toile.loadUrl("file:///android_asset/essai-son.html");
+            }
         }
     }
 
@@ -566,6 +570,68 @@ public class ActivitePrincipale extends Activity {
             } catch (Exception e) { /* l'interprète joue quand même */ }
         });
     }
+
+    /**
+     * Essai de Felly (16/10/2026) : une vidéo jouée SUR le téléphone, et
+     * l'interprète restait muet — le micro efface ce que le téléphone joue
+     * lui-même. Le son du téléphone lui est donc donné à la source, comme le
+     * son de l'ordinateur sous Windows, avec l'accord du client (fenêtre du
+     * système). Voir ServiceSonTelephone.
+     */
+    void sonDuTelephone(boolean capter) {
+        runOnUiThread(() -> {
+            if (!pageAutorisee(toile.getUrl())) { return; }
+            if (!capter) {
+                stopService(new Intent(this, ServiceSonTelephone.class));
+                return;
+            }
+            if (Build.VERSION.SDK_INT < 29) { direSonTelephone("arrete", "'version'"); return; }
+            try {
+                android.media.projection.MediaProjectionManager projections =
+                        getSystemService(android.media.projection.MediaProjectionManager.class);
+                /* Tout l'écran d'emblée : le son de « une seule application »
+                   ne serait pas celui que le client regarde forcément. */
+                Intent demande = Build.VERSION.SDK_INT >= 34
+                        ? projections.createScreenCaptureIntent(
+                                android.media.projection.MediaProjectionConfig.createConfigForDefaultDisplay())
+                        : projections.createScreenCaptureIntent();
+                startActivityForResult(demande, SON_TELEPHONE);
+            } catch (Exception e) {
+                direSonTelephone("arrete", "'capture'");
+            }
+        });
+    }
+
+    /** La page qui a demandé le son, et seulement elle, le reçoit. */
+    private boolean pageAutorisee(String adresse) {
+        return pageDeChezNous(adresse)
+                /* Banc d'essai (débogage) : la page d'essai vit dans les assets. */
+                || (BuildConfig.DEBUG && adresse != null && adresse.startsWith("file:///android_asset/"));
+    }
+
+    /** window.rapporteurSonTelephone.<fonction>(<argument>), sur le fil de la page. */
+    private void direSonTelephone(String fonction, String argument) {
+        toile.post(() -> {
+            if (isDestroyed()) { return; }
+            if (!pageAutorisee(toile.getUrl())) {
+                stopService(new Intent(this, ServiceSonTelephone.class));
+                return;
+            }
+            toile.evaluateJavascript("window.rapporteurSonTelephone&&window.rapporteurSonTelephone."
+                    + fonction + "(" + argument + ")", null);
+        });
+    }
+
+    private final ServiceSonTelephone.Recepteur recepteurSon = new ServiceSonTelephone.Recepteur() {
+        @Override
+        public void pret() { direSonTelephone("pret", ""); }
+
+        @Override
+        public void recevoir(String morceau) { direSonTelephone("recevoir", "'" + morceau + "'"); }
+
+        @Override
+        public void arrete(String raison) { direSonTelephone("arrete", "'" + raison + "'"); }
+    };
 
     private void creerPanneauReunion() {
         reunion = new WebView(this);
@@ -739,6 +805,23 @@ public class ActivitePrincipale extends Activity {
      *  de fichier ne fonctionne jusqu'au rechargement. */
     @Override
     protected void onActivityResult(int code, int resultat, Intent donnees) {
+        if (code == SON_TELEPHONE) {
+            /* « Commencer » : le service prend le son et le porte à la page.
+               « Annuler » : l'interprète garde le micro seul. */
+            if (resultat == RESULT_OK && donnees != null && pageAutorisee(toile.getUrl())) {
+                ServiceSonTelephone.recepteur = recepteurSon;
+                try {
+                    startForegroundService(new Intent(this, ServiceSonTelephone.class)
+                            .putExtra(ServiceSonTelephone.RESULTAT, resultat)
+                            .putExtra(ServiceSonTelephone.DONNEES, donnees));
+                } catch (Exception e) {
+                    direSonTelephone("arrete", "'service'");
+                }
+            } else {
+                direSonTelephone("arrete", "'annule'");
+            }
+            return;
+        }
         if (code == CHOIX_FICHIERS) {
             if (attenteFichiers == null) { return; }
             Uri[] fichiers = null;
@@ -789,6 +872,9 @@ public class ActivitePrincipale extends Activity {
         /* L'activité meurt pour de bon : plus personne ne grave. Le service
            ne doit pas survivre à la page qui tenait le micro. */
         if (isFinishing()) { stopService(new Intent(this, ServiceEnregistrement.class)); }
+        /* Le son du téléphone n'a plus de page à qui parler. */
+        ServiceSonTelephone.recepteur = null;
+        stopService(new Intent(this, ServiceSonTelephone.class));
         if (reunion != null) { reunion.destroy(); }
         toile.destroy();
         super.onDestroy();

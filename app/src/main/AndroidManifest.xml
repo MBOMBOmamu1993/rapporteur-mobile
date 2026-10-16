@@ -23,6 +23,10 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <!-- L'interprète vocal entend le son que joue le téléphone (YouTube, une
+         vidéo) : le micro l'efface de lui-même. Android ne le donne qu'avec
+         l'accord du client, à un service « projection ». -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!-- Les liens sortants (aide, conditions, sites tiers) partent vers le
@@ -76,6 +80,11 @@
             android:name=".ServiceEnregistrement"
             android:exported="false"
             android:foregroundServiceType="microphone" />
+
+        <service
+            android:name=".ServiceSonTelephone"
+            android:exported="false"
+            android:foregroundServiceType="mediaProjection|microphone" />
 
     </application>
 </manifest>

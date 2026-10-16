@@ -6,4 +6,7 @@
     <string name="notif_texte">L\'écran peut s\'éteindre : la capture continue.</string>
     <string name="reunion_titre">Réunion — dans Rapporteur</string>
     <string name="reunion_fermer">✕ Fermer</string>
+    <string name="canal_son_nom">Interprète vocal</string>
+    <string name="notif_son_titre">L\'interprète écoute le son du téléphone</string>
+    <string name="notif_son_texte">Touchez pour revenir à Rapporteur.</string>
 </resources>
