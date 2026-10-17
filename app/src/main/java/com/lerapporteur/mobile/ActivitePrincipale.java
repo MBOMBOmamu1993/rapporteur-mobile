@@ -900,9 +900,19 @@ public class ActivitePrincipale extends Activity {
         try {
             AudioManager audio = getSystemService(AudioManager.class);
             if (audio != null) {
+                /* « micro » : des écouteurs filaires ou USB à micro, qu'Android prendrait pour
+                   micro du téléphone — en salle, le compte rendu entendrait mal la pièce (la
+                   page refuse alors l'enregistrement, raison dite). Les Bluetooth, jamais :
+                   sans permission Bluetooth, Android garde le micro du téléphone. */
+                boolean micro = false;
+                for (android.media.AudioDeviceInfo d : audio.getDevices(AudioManager.GET_DEVICES_INPUTS)) {
+                    int t = d.getType();
+                    if (t == android.media.AudioDeviceInfo.TYPE_WIRED_HEADSET || t == android.media.AudioDeviceInfo.TYPE_USB_HEADSET
+                            || t == android.media.AudioDeviceInfo.TYPE_USB_DEVICE) { micro = true; }
+                }
                 for (android.media.AudioDeviceInfo d : audio.getDevices(AudioManager.GET_DEVICES_OUTPUTS)) {
                     String type = typeEcouteurs(d.getType());
-                    if (type != null) { return "{\"branches\":true,\"type\":\"" + type + "\"}"; }
+                    if (type != null) { return "{\"branches\":true,\"type\":\"" + type + "\",\"micro\":" + micro + "}"; }
                 }
             }
         } catch (Exception e) { /* rien de sûr : comme sans écouteurs */ }
