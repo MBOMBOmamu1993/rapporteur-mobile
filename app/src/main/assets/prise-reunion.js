@@ -12,6 +12,14 @@
  * correspondants), jamais le micro du client ni rien d'autre de la page. Elle
  * ne fait rien tant que l'interprète ne la demande pas (capter(true, niveau)),
  * et rend tout à l'arrêt : le son de la réunion revient à son niveau.
+ *
+ * L'autre sens (demande de Felly, 17/10/2026 : « mes interlocuteurs entendent
+ * l'interprète plutôt que moi, plus fort, dans leur langue ») : quand la salle
+ * le demande (parler(true, niveau)), ce que la page ENVOIE aux correspondants
+ * devient la voix de l'interprète au premier plan, celle du client en fond. Pour
+ * cela, et seulement pendant ce temps, l'interprète entend le micro du client tel
+ * que la réunion le prend (annulation d'écho comprise) : la prise en remet une
+ * copie à la salle. À l'arrêt, chaque envoi retrouve le micro de la page.
  */
 (function () {
   "use strict";
@@ -22,6 +30,7 @@
   var flux = [];       /* les flux reçus que la page a montrés */
   var elements = [];   /* les éléments audio ou vidéo qui les jouent */
   var branches = [];   /* { f, source } branchés au mélange */
+  var liaisons = [];   /* les liaisons de la page : leurs envois portent le micro du client */
   var ctx = null, melange = null;
   var actif = false;
   var niveau = 1;
@@ -59,6 +68,7 @@
   if (typeof Liaison === "function") {
     var Prise = function (a, b) {
       var pc = new Liaison(a, b);
+      liaisons.push(pc);
       pc.addEventListener("track", function (e) {
         if (e.track && e.track.kind === "audio") { noter((e.streams && e.streams[0]) || new MediaStream([e.track]), null); }
       });
@@ -71,6 +81,19 @@
       });
     } catch (e) { /* rien */ }
     window.RTCPeerConnection = Prise;
+    /* Une liaison née avant la prise (page déjà chargée) se fait connaître dès qu'elle
+       sert : statistiques, envois, négociation — rien d'autre n'est changé. */
+    ["getStats", "getSenders", "getTransceivers", "addTrack", "addTransceiver", "createOffer", "createAnswer",
+      "setLocalDescription", "setRemoteDescription", "addIceCandidate"].forEach(function (nom) {
+      try {
+        var methode = Liaison.prototype[nom];
+        if (typeof methode !== "function") { return; }
+        Liaison.prototype[nom] = function () {
+          if (liaisons.indexOf(this) < 0) { liaisons.push(this); }
+          return methode.apply(this, arguments);
+        };
+      } catch (e) { /* la méthode reste telle quelle */ }
+    });
   }
 
   /* Les éléments déjà dans la page (réunion rejointe avant la prise). */
@@ -93,6 +116,20 @@
     } catch (e) { /* flux fini : rien à prendre */ }
   }
 
+  /** Un morceau de son en 16 bits, base 64 — la forme que l'application vérifie. */
+  function enMorceau(d) {
+    var octets = new Uint8Array(d.length * 2);
+    for (var i = 0; i < d.length; i++) {
+      var v = d[i] > 1 ? 1 : (d[i] < -1 ? -1 : d[i]);
+      var s = (v < 0 ? v * 32768 : v * 32767) | 0;
+      octets[2 * i] = s & 255;
+      octets[2 * i + 1] = (s >> 8) & 255;
+    }
+    var binaire = "";
+    for (var j = 0; j < octets.length; j += 8192) { binaire += String.fromCharCode.apply(null, octets.subarray(j, j + 8192)); }
+    return btoa(binaire);
+  }
+
   /* Le mélange des correspondants, en morceaux de 16 bits vers l'application. */
   function ouvrir() {
     if (ctx) { if (ctx.state !== "running") { ctx.resume().catch(function () {}); } return; }
@@ -108,17 +145,7 @@
       /* Rien tant qu'aucun flux reçu n'est branché : la salle comprend alors que la
          page ne donne pas son son, et l'interprète écoute par le micro. */
       if (!actif || !branches.length) { return; }
-      var d = e.inputBuffer.getChannelData(0);
-      var octets = new Uint8Array(d.length * 2);
-      for (var i = 0; i < d.length; i++) {
-        var v = d[i] > 1 ? 1 : (d[i] < -1 ? -1 : d[i]);
-        var s = (v < 0 ? v * 32768 : v * 32767) | 0;
-        octets[2 * i] = s & 255;
-        octets[2 * i + 1] = (s >> 8) & 255;
-      }
-      var binaire = "";
-      for (var j = 0; j < octets.length; j += 8192) { binaire += String.fromCharCode.apply(null, octets.subarray(j, j + 8192)); }
-      try { pont.son(btoa(binaire), ctx.sampleRate); } catch (x) { /* l'application est partie */ }
+      try { pont.son(enMorceau(e.inputBuffer.getChannelData(0)), ctx.sampleRate); } catch (x) { /* l'application est partie */ }
     };
     ctx.resume().catch(function () {});
   }
@@ -127,6 +154,99 @@
     elements.forEach(function (el) {
       try { var voulu = actif ? niveau : 1; if (el.volume !== voulu) { el.volume = voulu; } } catch (e) { /* rien */ }
     });
+  }
+
+  /* ---------------------------------------------- la voix de l'interprète, envoyée */
+
+  /* Pendant que la salle le demande : { ctx, sortie, piste (ce qu'on envoie), gainVoix,
+     gainClient, source (le micro du client), traitement (sa copie vers la salle),
+     origine (la piste de la page), envois [{ e, origine }], curseur, niveau }. */
+  var parole = null;
+
+  /** Les envois de son de la page — chacun porte le micro du client, ou rien (coupé). */
+  function envoisAudio() {
+    var liste = [];
+    liaisons = liaisons.filter(function (pc) { try { return pc.signalingState !== "closed"; } catch (x) { return false; } });
+    liaisons.forEach(function (pc) {
+      try {
+        if (pc.signalingState === "closed") { return; }
+        pc.getSenders().forEach(function (e) { if (e.track && e.track.kind === "audio") { liste.push(e); } });
+      } catch (x) { /* liaison fermée */ }
+    });
+    return liste;
+  }
+
+  /** Le micro de la page, au mélange envoyé (en fond) et en copie vers la salle. */
+  function brancherClient(piste) {
+    if (parole.origine === piste) { return; }
+    if (parole.source) { try { parole.source.disconnect(); } catch (e) { /* déjà débranché */ } }
+    parole.origine = piste;
+    parole.source = null;
+    try {
+      parole.source = parole.ctx.createMediaStreamSource(new MediaStream([piste]));
+      parole.source.connect(parole.gainClient);
+      parole.source.connect(parole.traitement);
+    } catch (e) { parole.source = null; }
+  }
+
+  function ouvrirParole(n) {
+    if (!parole) {
+      var c = new (window.AudioContext || window.webkitAudioContext)();
+      var p = { ctx: c, curseur: 0, reserve: 0.4, envois: [], voix: 0, micro: 0, trous: 0, sautes: 0, silences: 0, ouvert: false };
+      p.sortie = c.createMediaStreamDestination();
+      p.piste = p.sortie.stream.getAudioTracks()[0];
+      p.gainVoix = c.createGain();
+      p.gainVoix.connect(p.sortie);
+      p.gainClient = c.createGain();
+      p.gainClient.connect(p.sortie);
+      p.traitement = c.createScriptProcessor(4096, 1, 1);
+      var muet = c.createGain();
+      muet.gain.value = 0;
+      p.traitement.connect(muet);
+      muet.connect(c.destination);
+      p.traitement.onaudioprocess = function (e) {
+        // Le client coupé dans la réunion : l'interprète n'entend rien non plus.
+        if (parole !== p || !p.ouvert || !p.source) { return; }
+        try { pont.micro(enMorceau(e.inputBuffer.getChannelData(0)), c.sampleRate); p.micro++; } catch (x) { /* l'application est partie */ }
+      };
+      parole = p;
+    }
+    parole.niveau = typeof n === "number" && n >= 0 && n <= 1 ? n : 0.25;
+    parole.ctx.resume().catch(function () {});
+    suivreParole();
+  }
+
+  /** Chaque envoi de la page passe à la voix de l'interprète ; la page garde la main
+      sur le micro : une piste qu'elle pose devient le nouveau micro, la coupure
+      (piste désactivée) fait taire l'envoi. */
+  function suivreParole() {
+    if (!parole) { return; }
+    envoisAudio().forEach(function (e) {
+      var piste = e.track;
+      if (piste === parole.piste) { return; }
+      brancherClient(piste);
+      var connu = parole.envois.filter(function (x) { return x.e === e; })[0];
+      if (connu) { connu.origine = piste; } else { parole.envois.push({ e: e, origine: piste }); }
+      e.replaceTrack(parole.piste).catch(function () { /* la page garde son micro */ });
+    });
+    var o = parole.origine;
+    parole.ouvert = Boolean(o && o.readyState === "live" && o.enabled);
+    parole.gainVoix.gain.value = parole.ouvert ? 1 : 0;
+    parole.gainClient.gain.value = parole.ouvert ? parole.niveau : 0;
+  }
+
+  function fermerParole() {
+    if (!parole) { return; }
+    var p = parole;
+    parole = null;
+    p.envois.forEach(function (x) {
+      try {
+        if (x.e.track === p.piste) { x.e.replaceTrack(x.origine && x.origine.readyState === "live" ? x.origine : null).catch(function () {}); }
+      } catch (e) { /* liaison fermée */ }
+    });
+    try { if (p.source) { p.source.disconnect(); } } catch (e) { /* déjà débranché */ }
+    p.traitement.onaudioprocess = null;
+    try { p.ctx.close(); } catch (e) { /* déjà fermé */ }
   }
 
   window.__rapporteurPrise = {
@@ -138,10 +258,57 @@
       if (actif) { balayer(); ouvrir(); flux.forEach(brancher); }
       poserNiveau();
     },
+    /* oui : les correspondants entendent l'interprète ; n : la voix du client
+       derrière lui. Non : chaque envoi retrouve le micro de la page. */
+    parler: function (oui, n) {
+      if (oui) { ouvrirParole(n); } else { fermerParole(); }
+    },
+    /* Un morceau de la voix de l'interprète (16 bits, base 64), à envoyer. */
+    voix: function (b64, taux) {
+      var p = parole;
+      if (!p || !p.ouvert) { return; }
+      var o = atob(b64);
+      var n = o.length >> 1;
+      var maintenant = p.ctx.currentTime;
+      if (!n) { return; }
+      var tampon = p.ctx.createBuffer(1, n, taux);
+      var canal = tampon.getChannelData(0);
+      var crete = 0;
+      for (var i = 0; i < n; i++) {
+        var v = o.charCodeAt(2 * i) | (o.charCodeAt(2 * i + 1) << 8);
+        canal[i] = (v > 32767 ? v - 65536 : v) / 32768;
+        if (canal[i] > crete) { crete = canal[i]; } else if (-canal[i] > crete) { crete = -canal[i]; }
+      }
+      /* Une réserve, 400 ms au départ : les morceaux arrivent par à-coups (deux pages, un
+         pont), la voix reste continue (Felly, 17/10/2026 : « elle sort entrecoupée,
+         haletante », « au démarrage il y avait ces à-coups »). Chaque trou l'allonge de
+         200 ms, jusqu'à une seconde ; le retard se rattrape sur les SILENCES de
+         l'interprète, jamais sur sa voix ; seule une rafale de plus de 3 s fait sauter
+         un morceau. */
+      var avance = p.curseur - maintenant;
+      if (avance > p.reserve + 0.2 && crete < 0.01) { p.silences++; return; }
+      if (avance > 3) { p.sautes++; return; }
+      if (avance < 0.02) {
+        // Réserve vide : un trou dans la voix (le premier morceau n'en est pas un).
+        if (p.voix > 0) { p.trous++; p.reserve = Math.min(1, p.reserve + 0.2); }
+        p.curseur = maintenant + p.reserve;
+      }
+      var lecture = p.ctx.createBufferSource();
+      lecture.buffer = tampon;
+      lecture.connect(p.gainVoix);
+      lecture.start(p.curseur);
+      p.curseur += tampon.duration;
+      p.voix++;
+    },
     etat: function () {
-      return JSON.stringify({ actif: actif, flux: flux.length, elements: elements.length, branches: branches.length, niveau: niveau });
+      return JSON.stringify({ actif: actif, flux: flux.length, elements: elements.length, branches: branches.length, niveau: niveau,
+        parole: parole ? { ouvert: parole.ouvert, envois: envoisAudio().filter(function (e) { return e.track === parole.piste; }).length,
+          voix: parole.voix, micro: parole.micro, trous: parole.trous, sautes: parole.sautes, silences: parole.silences,
+          reserve: parole.reserve, niveau: parole.niveau } : null });
     },
   };
+
+  setInterval(suivreParole, 500);
 
   setInterval(function () {
     if (!actif) { return; }

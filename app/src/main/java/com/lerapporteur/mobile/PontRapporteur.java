@@ -97,4 +97,24 @@ public class PontRapporteur {
     public void sonReunion(boolean capter, double niveau) {
         hote.sonReunion(capter, niveau);
     }
+
+    /** L'interprète peut-il parler DANS la réunion ouverte dans le panneau ? */
+    @JavascriptInterface
+    public boolean paroleReunionPossible() {
+        return hote.paroleReunionPossible();
+    }
+
+    /** Les correspondants entendent l'interprète (le client en fond, à ce niveau) ;
+     *  le micro du client, tel que la réunion le prend, arrive par
+     *  window.rapporteurMicroReunion. Faux : la réunion retrouve le micro. */
+    @JavascriptInterface
+    public void paroleReunion(boolean parler, double niveau) {
+        hote.paroleReunion(parler, niveau);
+    }
+
+    /** Un morceau de la voix de l'interprète (16 bits, base 64), pour la réunion. */
+    @JavascriptInterface
+    public void voixReunion(String morceau, int taux) {
+        hote.voixReunion(morceau, taux);
+    }
 }
