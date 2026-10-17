@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Réunion d'essai (parole)</title>
+<style>
+body { margin: 0; padding: 1rem; background: #1F1E1D; color: #F0EEE6; font-family: system-ui, sans-serif; }
+b { white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<p>Réunion d'essai : le micro du client est une tonalité de 220 Hz, envoyée par WebRTC ; on mesure ce que reçoivent les correspondants.</p>
+<b id="etat">CONNEXION</b>
+<script>
+/* Le banc de la voix de l'interprète DANS la réunion : deux liaisons bouclées tiennent
+   lieu de serveur. Ce que reçoit la seconde, c'est ce qu'entendraient les
+   correspondants : on y mesure le micro du client (220 Hz) et la voix de
+   l'interprète que la salle d'essai envoie (660 Hz). */
+(async function () {
+  var etat = document.getElementById("etat");
+  var source = new AudioContext();
+  var osc = source.createOscillator(); osc.frequency.value = 220;
+  var g = source.createGain(); g.gain.value = 0.5;
+  var dest = source.createMediaStreamDestination();
+  osc.connect(g).connect(dest); osc.start();
+  var micro = dest.stream.getAudioTracks()[0];
+  window.__micro = micro;
+  var pc1 = new RTCPeerConnection(), pc2 = new RTCPeerConnection();
+  pc1.onicecandidate = function (e) { if (e.candidate) { pc2.addIceCandidate(e.candidate); } };
+  pc2.onicecandidate = function (e) { if (e.candidate) { pc1.addIceCandidate(e.candidate); } };
+  pc1.addTrack(micro, dest.stream);
+  var recu = new Promise(function (fin) { pc2.ontrack = function (e) { fin(e.streams[0] || new MediaStream([e.track])); }; });
+  var offre = await pc1.createOffer(); await pc1.setLocalDescription(offre); await pc2.setRemoteDescription(offre);
+  var reponse = await pc2.createAnswer(); await pc2.setLocalDescription(reponse); await pc1.setRemoteDescription(reponse);
+  var flux = await recu;
+  // Chrome ne fait couler un flux WebRTC reçu que s'il est aussi attaché à un élément.
+  var audio = document.createElement("audio");
+  audio.muted = true; audio.autoplay = true; audio.srcObject = flux;
+  document.body.appendChild(audio);
+  audio.play().catch(function () {});
+  var mesure = new AudioContext();
+  var an = mesure.createAnalyser(); an.fftSize = 8192;
+  mesure.createMediaStreamSource(flux).connect(an);
+  var spectre = new Float32Array(an.frequencyBinCount);
+  function db(f) {
+    var i = Math.round(f / (mesure.sampleRate / an.fftSize));
+    return Math.max(spectre[i - 1], spectre[i], spectre[i + 1]);
+  }
+  var crete = { f220: -200, f660: -200 };
+  setInterval(function () {
+    an.getFloatFrequencyData(spectre);
+    var a = db(220), b = db(660);
+    var prise = window.__rapporteurPrise ? window.__rapporteurPrise.etat() : "pas de prise";
+    etat.textContent = "REUNION f220=" + a.toFixed(0) + "dB f660=" + b.toFixed(0) + "dB envoi=" +
+      (pc1.getSenders()[0].track === micro ? "micro" : "autre") + " prise=" + prise;
+    window.__mesure = { f220: a, f660: b, envoi: pc1.getSenders()[0].track === micro ? "micro" : "autre" };
+  }, 500);
+})();
+</script>
+</body>
+</html>

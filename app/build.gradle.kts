@@ -20,8 +20,8 @@ android {
         applicationId = "com.lerapporteur.mobile"
         minSdk = 26
         targetSdk = 36
-        versionCode = 16
-        versionName = "1.1.11"
+        versionCode = 17
+        versionName = "1.1.12"
     }
 
     /* Deux canaux de distribution, même application :

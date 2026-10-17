@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Essai de la voix dans la réunion</title>
+<style>
+body { margin: 0; padding: 1rem; background: #F0EEE6; color: #141413; font-family: system-ui, sans-serif; }
+b { white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<p>Banc de la voix de l'interprète dans la réunion — la salle envoie une voix de 660 Hz et reçoit le micro du client.</p>
+<b id="etat">ATTENTE</b>
+<script>
+/* Fait comme l'interprète : demande la parole dans la réunion du panneau, envoie une
+   « voix » de 660 Hz par morceaux de 16 bits (base 64), reçoit le micro du client
+   tel que la réunion le prend, puis rend la parole : le verdict reste écrit. */
+(function () {
+  var etat = document.getElementById("etat");
+  var morceaux = 0, crete = 0, arrets = 0, possible = null, demande = false, envoyes = 0, fini = "";
+  window.rapporteurMicroReunion = {
+    recevoir: function (b64) {
+      morceaux++;
+      var o = atob(b64);
+      for (var i = 0; i + 1 < o.length; i += 2) {
+        var v = o.charCodeAt(i) | (o.charCodeAt(i + 1) << 8);
+        v = (v > 32767 ? v - 65536 : v) / 32768;
+        if (Math.abs(v) > crete) { crete = Math.abs(v); }
+      }
+    },
+    arrete: function () { arrets++; },
+  };
+  var phase = 0, envoi = null;
+  function morceauVoix() {
+    var n = 2048, octets = new Uint8Array(n * 2);
+    for (var i = 0; i < n; i++) {
+      var s = (Math.sin(phase) * 0.5 * 32767) | 0;
+      phase += 2 * Math.PI * 660 / 48000;
+      octets[2 * i] = s & 255; octets[2 * i + 1] = (s >> 8) & 255;
+    }
+    var binaire = "";
+    for (var j = 0; j < octets.length; j += 8192) { binaire += String.fromCharCode.apply(null, octets.subarray(j, j + 8192)); }
+    return btoa(binaire);
+  }
+  function montrer() {
+    etat.textContent = "PAROLE possible=" + possible + " demande=" + demande + " envoyes=" + envoyes +
+      " micro=" + morceaux + " crete=" + crete.toFixed(3) + " arrets=" + arrets + (fini ? " " + fini : "");
+  }
+  setInterval(montrer, 500);
+  setTimeout(function () {
+    possible = window.rapporteurAndroid.paroleReunionPossible();
+    if (!possible) { return; }
+    window.rapporteurAndroid.paroleReunion(true, 0.25);
+    demande = true;
+    envoi = setInterval(function () { window.rapporteurAndroid.voixReunion(morceauVoix(), 48000); envoyes++; }, 42);
+  }, 6000);
+  setTimeout(function () {
+    clearInterval(envoi);
+    window.rapporteurAndroid.paroleReunion(false, 1);
+    var avant = morceaux;
+    setTimeout(function () { fini = (morceaux - avant <= 2 ? "LACHEE" : "TOUJOURS") + (crete > 0.05 ? " MICRO_OK" : " MICRO_MUET"); }, 1500);
+  }, 20000);
+})();
+</script>
+</body>
+</html>

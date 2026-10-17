@@ -446,6 +446,13 @@ public class ActivitePrincipale extends Activity {
                 toile.loadUrl("file:///android_asset/essai-prise.html");
                 toile.postDelayed(() -> ouvrirReunion("file:///android_asset/essai-reunion-son.html"), 3000);
             }
+            /* La voix de l'interprète DANS la réunion : la salle d'essai envoie une voix
+               de 660 Hz ; la réunion d'essai (micro de 220 Hz, envoi bouclé) mesure ce
+               qu'entendraient ses correspondants. `--ez essai_parole true`. */
+            if (getIntent().hasExtra("essai_parole")) {
+                toile.loadUrl("file:///android_asset/essai-parole.html");
+                toile.postDelayed(() -> ouvrirReunion("file:///android_asset/essai-reunion-parole.html"), 3000);
+            }
             /* Le volume d'appel de l'interprète : l'émulateur n'a pas d'annulation
                d'écho matérielle, donc jamais de mode « appel » venu du WebView — on
                le pose ici comme lui, puis on suit le volume (traces D/Rapporteur).
@@ -597,6 +604,10 @@ public class ActivitePrincipale extends Activity {
                     priseReunion = false;
                     direSonReunion("arrete", "");
                 }
+                if (paroleReunion) {
+                    paroleReunion = false;
+                    direMicroReunion("arrete", "");
+                }
                 reunion.loadUrl("about:blank");
                 conteneurReunion.setVisibility(View.GONE);
             } catch (Exception e) { /* même règle : la salle avant tout */ }
@@ -620,6 +631,9 @@ public class ActivitePrincipale extends Activity {
     private volatile String urlReunion;
     private volatile boolean priseReunion;
     private volatile double niveauReunion = 1;
+    /** L'interprète parle DANS la réunion (règle 7) ; la voix du client en fond, à ce niveau. */
+    private volatile boolean paroleReunion;
+    private volatile double niveauClient = 0.25;
     private String scriptPrise;
     private static final java.util.regex.Pattern BASE64 = java.util.regex.Pattern.compile("^[A-Za-z0-9+/]+={0,2}$");
 
@@ -670,6 +684,7 @@ public class ActivitePrincipale extends Activity {
             }
             vue.evaluateJavascript(scriptPrise, null);
             if (priseReunion) { commanderPrise(); }
+            if (paroleReunion) { commanderParole(); }
         } catch (Exception e) { /* sans prise, l'interprète garde ses sous-titres */ }
     }
 
@@ -682,8 +697,61 @@ public class ActivitePrincipale extends Activity {
         });
     }
 
+    /*
+     * L'autre sens (demande de Felly, 17/10/2026) : « mes interlocuteurs
+     * entendent l'interprète plutôt que moi, plus fort, dans leur langue ». La
+     * salle le demande ; la prise fait alors envoyer par la page de réunion la
+     * voix de l'interprète au premier plan, celle du client en fond, et remet à
+     * la salle une copie du micro du client TEL QUE LA RÉUNION LE PREND (annulation
+     * d'écho comprise) : c'est ce que l'interprète traduit. Aucun micro de plus ne
+     * s'ouvre, et la voix ne passe jamais par le haut-parleur : le compte rendu
+     * n'en est pas touché. Mêmes vérifications que la prise, dans les deux sens.
+     */
+    boolean paroleReunionPossible() {
+        return sonReunionPossible();
+    }
+
+    /** La salle fait parler l'interprète dans la réunion (ou l'arrête) ; niveau =
+     *  la voix du client derrière lui, pour les correspondants. */
+    void paroleReunion(boolean parler, double niveau) {
+        runOnUiThread(() -> {
+            if (!pageAutorisee(toile.getUrl())) { return; }
+            paroleReunion = parler && paroleReunionPossible();
+            niveauClient = Math.max(0, Math.min(1, niveau));
+            commanderParole();
+        });
+    }
+
+    private void commanderParole() {
+        if (reunion == null) { return; }
+        reunion.evaluateJavascript("window.__rapporteurPrise&&window.__rapporteurPrise.parler("
+                + paroleReunion + "," + niveauClient + ")", null);
+    }
+
+    /** Un morceau de la voix de l'interprète, de la salle vers la réunion. */
+    void voixReunion(String morceau, int taux) {
+        if (!paroleReunion || morceau == null || morceau.isEmpty() || morceau.length() > 65536) { return; }
+        if (taux < 8000 || taux > 96000 || !BASE64.matcher(morceau).matches()) { return; }
+        runOnUiThread(() -> {
+            if (isDestroyed() || reunion == null || !paroleReunion) { return; }
+            if (!pageAutorisee(toile.getUrl()) || !reunionDeConfiance(urlReunion)) { return; }
+            reunion.evaluateJavascript("window.__rapporteurPrise&&window.__rapporteurPrise.voix('"
+                    + morceau + "'," + taux + ")", null);
+        });
+    }
+
+    /** window.rapporteurMicroReunion.<fonction>(<argument>), sur le fil de la salle. */
+    private void direMicroReunion(String fonction, String argument) {
+        toile.post(() -> {
+            if (isDestroyed() || !pageAutorisee(toile.getUrl())) { return; }
+            toile.evaluateJavascript("window.rapporteurMicroReunion&&window.rapporteurMicroReunion."
+                    + fonction + "(" + argument + ")", null);
+        });
+    }
+
     /** Le seul pont du panneau : la page de réunion ne peut que DONNER le son
-     *  de ses correspondants, et seulement quand la salle l'a demandé. */
+     *  de ses correspondants, ou le micro du client pendant que l'interprète
+     *  parle dans la réunion — et seulement quand la salle l'a demandé. */
     private final class PontReunion {
         @android.webkit.JavascriptInterface
         public void son(String morceau, int taux) {
@@ -691,6 +759,14 @@ public class ActivitePrincipale extends Activity {
             if (taux < 8000 || taux > 96000 || !reunionDeConfiance(urlReunion)) { return; }
             if (!BASE64.matcher(morceau).matches()) { return; }
             direSonReunion("recevoir", "'" + morceau + "'," + taux);
+        }
+
+        @android.webkit.JavascriptInterface
+        public void micro(String morceau, int taux) {
+            if (!paroleReunion || morceau == null || morceau.isEmpty() || morceau.length() > 65536) { return; }
+            if (taux < 8000 || taux > 96000 || !reunionDeConfiance(urlReunion)) { return; }
+            if (!BASE64.matcher(morceau).matches()) { return; }
+            direMicroReunion("recevoir", "'" + morceau + "'," + taux);
         }
     }
 
