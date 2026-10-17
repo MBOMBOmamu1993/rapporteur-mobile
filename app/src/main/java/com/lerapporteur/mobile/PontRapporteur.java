@@ -70,6 +70,14 @@ public class PontRapporteur {
         hote.autresSons(baisser);
     }
 
+    /** Des écouteurs sur ce téléphone (filaires, USB, Bluetooth) ? La page le demande à
+     *  chaque tour de l'interprète : avec eux, sa voix va aux oreilles et le micro du
+     *  téléphone continue d'écouter la salle ; branchés ou retirés, il suit (1.1.13). */
+    @JavascriptInterface
+    public String ecouteurs() {
+        return hote.ecouteurs();
+    }
+
     /** Ce téléphone sait-il donner à l'interprète le son qu'il joue (Android 10+) ? */
     @JavascriptInterface
     public boolean sonDuTelephonePossible() {

@@ -524,6 +524,9 @@ public class ActivitePrincipale extends Activity {
         runOnUiThread(() -> {
             if (!pageDeChezNous(toile.getUrl())) { return; }
             startForegroundService(new Intent(this, ServiceEnregistrement.class));
+            // Le compte rendu entend la réunion du panneau par le haut-parleur : pas d'écouteurs Bluetooth.
+            enregistrementEnCours = true;
+            accorderEcouteursReunion();
         });
     }
 
@@ -546,6 +549,8 @@ public class ActivitePrincipale extends Activity {
         runOnUiThread(() -> {
             if (!pageDeChezNous(toile.getUrl())) { return; }
             stopService(new Intent(this, ServiceEnregistrement.class));
+            enregistrementEnCours = false;
+            accorderEcouteursReunion();
         });
     }
 
@@ -586,6 +591,7 @@ public class ActivitePrincipale extends Activity {
                 if (reunion == null) { creerPanneauReunion(); }
                 conteneurReunion.setVisibility(View.VISIBLE);
                 panneauOuvert = true;
+                suivreEcouteursReunion(true);
                 reunion.loadUrl(lien.toString());
             } catch (Exception e) {
                 /* Quoi qu'il arrive, le panneau ne doit jamais emporter la
@@ -599,6 +605,7 @@ public class ActivitePrincipale extends Activity {
             try {
                 if (reunion == null) { return; }
                 panneauOuvert = false;
+                suivreEcouteursReunion(false);
                 urlReunion = null;
                 if (priseReunion) {
                     priseReunion = false;
@@ -879,6 +886,142 @@ public class ActivitePrincipale extends Activity {
             audio.removeOnModeChangedListener(ecouteModeAppel);
             ecouteModeAppel = null;
         }
+    }
+
+    /*
+     * Écouteurs : demande de Felly (17/10/2026), « avec ou sans écouteurs, Bluetooth ou
+     * AirPods, que ce soit flexible et dynamique ». La page demande à chaque tour de
+     * l'interprète s'il y en a : avec eux, en salle, elle ouvre le micro sans annulation
+     * d'écho — pas de mode « appel » —, la voix va aux écouteurs et le micro du téléphone
+     * continue d'écouter la pièce (sans permission Bluetooth, Android ne prend jamais le
+     * micro des écouteurs Bluetooth à la place).
+     */
+    String ecouteurs() {
+        try {
+            AudioManager audio = getSystemService(AudioManager.class);
+            if (audio != null) {
+                /* « micro » : des écouteurs filaires ou USB à micro, qu'Android prendrait pour
+                   micro du téléphone — en salle, le compte rendu entendrait mal la pièce (la
+                   page refuse alors l'enregistrement, raison dite). Les Bluetooth, jamais :
+                   sans permission Bluetooth, Android garde le micro du téléphone. */
+                boolean micro = false;
+                for (android.media.AudioDeviceInfo d : audio.getDevices(AudioManager.GET_DEVICES_INPUTS)) {
+                    int t = d.getType();
+                    if (t == android.media.AudioDeviceInfo.TYPE_WIRED_HEADSET || t == android.media.AudioDeviceInfo.TYPE_USB_HEADSET
+                            || t == android.media.AudioDeviceInfo.TYPE_USB_DEVICE) { micro = true; }
+                }
+                for (android.media.AudioDeviceInfo d : audio.getDevices(AudioManager.GET_DEVICES_OUTPUTS)) {
+                    String type = typeEcouteurs(d.getType());
+                    if (type != null) { return "{\"branches\":true,\"type\":\"" + type + "\",\"micro\":" + micro + "}"; }
+                }
+            }
+        } catch (Exception e) { /* rien de sûr : comme sans écouteurs */ }
+        return "{\"branches\":false}";
+    }
+
+    private static String typeEcouteurs(int type) {
+        switch (type) {
+            case android.media.AudioDeviceInfo.TYPE_WIRED_HEADPHONES:
+            case android.media.AudioDeviceInfo.TYPE_WIRED_HEADSET:
+                return "filaire";
+            case android.media.AudioDeviceInfo.TYPE_USB_HEADSET:
+                return "usb";
+            case android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP:
+            case android.media.AudioDeviceInfo.TYPE_BLUETOOTH_SCO:
+            case 26: // TYPE_BLE_HEADSET (Android 12)
+                return "bluetooth";
+            case android.media.AudioDeviceInfo.TYPE_HEARING_AID:
+                return "auditif";
+            default:
+                return null;
+        }
+    }
+
+    /*
+     * La réunion ouverte dans Rapporteur est un appel : sans permission Bluetooth, le
+     * WebView le garde au haut-parleur même quand des écouteurs Bluetooth sont connectés
+     * (les filaires, il les prend de lui-même). Tant que le panneau est ouvert et en appel,
+     * l'appel passe donc aux écouteurs Bluetooth, micro compris, comme tout appel — mais
+     * JAMAIS pendant un enregistrement : le compte rendu entend les correspondants par le
+     * haut-parleur, il les perdrait. L'appareil d'avant est rendu à l'enregistrement, au
+     * départ des écouteurs ou à la fermeture du panneau.
+     */
+    private volatile boolean enregistrementEnCours;
+    private AudioManager.OnModeChangedListener ecouteModeReunion;
+    private AudioManager.OnCommunicationDeviceChangedListener ecouteAppareilReunion;
+    private android.media.AudioDeviceCallback ecouteAppareils;
+    private android.media.AudioDeviceInfo appareilPose;
+    private android.media.AudioDeviceInfo appareilAvant;
+    private int reprises;
+    private long debutReprises;
+
+    private void suivreEcouteursReunion(boolean suivre) {
+        if (Build.VERSION.SDK_INT < 31) { return; }
+        try {
+            AudioManager audio = getSystemService(AudioManager.class);
+            if (audio == null) { return; }
+            if (suivre && ecouteModeReunion == null) {
+                ecouteModeReunion = mode -> accorderEcouteursReunion();
+                ecouteAppareilReunion = appareil -> accorderEcouteursReunion();
+                ecouteAppareils = new android.media.AudioDeviceCallback() {
+                    @Override public void onAudioDevicesAdded(android.media.AudioDeviceInfo[] ajoutes) { accorderEcouteursReunion(); }
+                    @Override public void onAudioDevicesRemoved(android.media.AudioDeviceInfo[] retires) { accorderEcouteursReunion(); }
+                };
+                audio.addOnModeChangedListener(getMainExecutor(), ecouteModeReunion);
+                audio.addOnCommunicationDeviceChangedListener(getMainExecutor(), ecouteAppareilReunion);
+                audio.registerAudioDeviceCallback(ecouteAppareils, new android.os.Handler(android.os.Looper.getMainLooper()));
+                accorderEcouteursReunion();
+            } else if (!suivre && ecouteModeReunion != null) {
+                audio.removeOnModeChangedListener(ecouteModeReunion);
+                audio.removeOnCommunicationDeviceChangedListener(ecouteAppareilReunion);
+                audio.unregisterAudioDeviceCallback(ecouteAppareils);
+                ecouteModeReunion = null;
+                ecouteAppareilReunion = null;
+                ecouteAppareils = null;
+                rendreAppareilReunion(audio);
+            }
+        } catch (Exception e) { /* l'appel reste où le WebView l'a mis */ }
+    }
+
+    private void accorderEcouteursReunion() {
+        if (Build.VERSION.SDK_INT < 31) { return; }
+        try {
+            AudioManager audio = getSystemService(AudioManager.class);
+            if (audio == null) { return; }
+            if (!panneauOuvert || enregistrementEnCours || audio.getMode() != AudioManager.MODE_IN_COMMUNICATION) {
+                rendreAppareilReunion(audio);
+                return;
+            }
+            android.media.AudioDeviceInfo bluetooth = null;
+            for (android.media.AudioDeviceInfo d : audio.getAvailableCommunicationDevices()) {
+                if (d.getType() == 26 /* TYPE_BLE_HEADSET */ || d.getType() == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_SCO) { bluetooth = d; break; }
+            }
+            if (bluetooth == null) { rendreAppareilReunion(audio); return; }
+            android.media.AudioDeviceInfo actuel = audio.getCommunicationDevice();
+            if (actuel != null && actuel.getId() == bluetooth.getId()) { return; }
+            // Le WebView peut le reprendre : trois reprises par minute au plus, jamais de ping-pong.
+            long maintenant = android.os.SystemClock.elapsedRealtime();
+            if (maintenant - debutReprises > 60_000) { debutReprises = maintenant; reprises = 0; }
+            if (reprises >= 3) { return; }
+            reprises++;
+            if (appareilPose == null) { appareilAvant = actuel; }
+            if (audio.setCommunicationDevice(bluetooth)) { appareilPose = bluetooth; }
+        } catch (Exception e) { /* l'appel reste où il est */ }
+    }
+
+    /** L'appel rendu à l'appareil d'avant (le haut-parleur du WebView, d'ordinaire). */
+    private void rendreAppareilReunion(AudioManager audio) {
+        if (Build.VERSION.SDK_INT < 31 || appareilPose == null) { return; }
+        appareilPose = null;
+        try {
+            android.media.AudioDeviceInfo rendu = null;
+            for (android.media.AudioDeviceInfo d : audio.getAvailableCommunicationDevices()) {
+                if (appareilAvant != null && d.getId() == appareilAvant.getId()) { rendu = d; break; }
+                if (rendu == null && d.getType() == android.media.AudioDeviceInfo.TYPE_BUILTIN_SPEAKER) { rendu = d; }
+            }
+            if (rendu != null) { audio.setCommunicationDevice(rendu); } else { audio.clearCommunicationDevice(); }
+        } catch (Exception e) { /* rien à rendre */ }
+        appareilAvant = null;
     }
 
     /**
@@ -1202,6 +1345,7 @@ public class ActivitePrincipale extends Activity {
         /* L'interprète se tait avec la page (son micro est encore ouvert ici) :
            volume d'appel et autres sons rendus. */
         autresSons(false);
+        suivreEcouteursReunion(false);
         if (reunion != null) { reunion.destroy(); }
         toile.destroy();
         super.onDestroy();
